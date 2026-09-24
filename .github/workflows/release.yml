@@ -35,6 +35,22 @@ jobs:
 
       - name: Build and publish Windows packages
         shell: pwsh
+        run: npx electron-builder --win nsis portable --x64 --publish never
+
+      - name: Upload release assets
+        shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder --win nsis portable --x64 --publish always
+        run: |
+          $tag = "${{ github.ref_name }}"
+          gh release view $tag --repo liixnglinb/AI-Chronicle *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --repo liixnglinb/AI-Chronicle --title "AI 轨迹 $tag" --notes "Windows release $tag" --verify-tag
+          }
+          gh release upload $tag `
+            "release/AI-Chronicle-Setup.exe" `
+            "release/AI-Chronicle-Portable.exe" `
+            "release/AI-Chronicle-Setup.exe.blockmap" `
+            "release/latest.yml" `
+            --repo liixnglinb/AI-Chronicle `
+            --clobber
