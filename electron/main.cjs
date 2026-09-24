@@ -2,6 +2,7 @@ const { app, BrowserWindow, dialog, ipcMain, shell } = require('electron')
 const fs = require('node:fs')
 const path = require('node:path')
 const os = require('node:os')
+const { autoUpdater } = require('electron-updater')
 
 const isDevelopment = !app.isPackaged
 const devServerUrl = process.env.ELECTRON_START_URL
@@ -68,6 +69,62 @@ function createWindow() {
   } else {
     void window.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
   }
+}
+
+function sendUpdateStatus(status) {
+  for (const window of BrowserWindow.getAllWindows()) {
+    window.webContents.send('desktop:update-status', status)
+  }
+}
+
+function configureUpdater() {
+  if (!app.isPackaged) return
+  autoUpdater.autoDownload = true
+  autoUpdater.autoInstallOnAppQuit = true
+
+  autoUpdater.on('checking-for-update', () =>
+    sendUpdateStatus({ state: 'checking', message: '正在检查 GitHub Releases。' }),
+  )
+  autoUpdater.on('update-available', (info) =>
+    sendUpdateStatus({
+      state: 'available',
+      version: info.version,
+      message: `发现新版本 v${info.version}，正在下载。`,
+    }),
+  )
+  autoUpdater.on('update-not-available', (info) =>
+    sendUpdateStatus({
+      state: 'not-available',
+      version: info.version,
+      message: '当前已经是最新版本。',
+    }),
+  )
+  autoUpdater.on('download-progress', (progress) =>
+    sendUpdateStatus({
+      state: 'downloading',
+      percent: Math.round(progress.percent),
+      message: `正在下载更新 ${Math.round(progress.percent)}%`,
+    }),
+  )
+  autoUpdater.on('update-downloaded', (info) =>
+    sendUpdateStatus({
+      state: 'downloaded',
+      version: info.version,
+      message: `新版本 v${info.version} 已下载，可以安装并重启。`,
+    }),
+  )
+  autoUpdater.on('error', (error) =>
+    sendUpdateStatus({
+      state: 'error',
+      message: error?.message || '检查更新失败。',
+    }),
+  )
+
+  setTimeout(() => {
+    autoUpdater.checkForUpdates().catch((error) => {
+      sendUpdateStatus({ state: 'error', message: error.message })
+    })
+  }, 7000)
 }
 
 function expandPath(value) {
@@ -201,6 +258,47 @@ ipcMain.handle('desktop:scan-sources', async () => {
   }
 })
 
+ipcMain.handle('desktop:check-for-updates', async () => {
+  if (!app.isPackaged) {
+    return {
+      ok: false,
+      state: 'unavailable',
+      message: '开发模式不检查更新，安装版会自动连接 GitHub Releases。',
+    }
+  }
+  try {
+    const result = await autoUpdater.checkForUpdates()
+    const version = result?.updateInfo?.version
+    const available = version && version !== app.getVersion()
+    return {
+      ok: true,
+      state: available ? 'available' : 'not-available',
+      version,
+      message: available
+        ? `发现新版本 v${version}，正在后台下载。`
+        : '当前已经是最新版本。',
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      state: 'error',
+      message: error?.message || '无法连接 GitHub Releases。',
+    }
+  }
+})
+
+ipcMain.handle('desktop:install-update', () => {
+  if (!app.isPackaged) {
+    return { ok: false, message: '只有安装后的正式版本可以安装更新。' }
+  }
+  try {
+    autoUpdater.quitAndInstall(false, true)
+    return { ok: true }
+  } catch (error) {
+    return { ok: false, message: error?.message || '安装更新失败。' }
+  }
+})
+
 const singleInstance = app.requestSingleInstanceLock()
 if (!singleInstance) {
   app.quit()
@@ -216,6 +314,7 @@ if (!singleInstance) {
   app.whenReady().then(() => {
     app.setAppUserModelId('com.aichronicle.desktop')
     createWindow()
+    if (!isSmokeTest) configureUpdater()
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
     })

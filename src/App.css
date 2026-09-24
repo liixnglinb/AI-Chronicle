@@ -3919,6 +3919,122 @@ button {
   background: var(--amber);
 }
 
+.update-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(230px, 0.72fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 20px;
+}
+
+.update-version-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.update-app-icon {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--surface-strong);
+  color: var(--text-soft);
+}
+
+.update-version-card > span:last-child {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.update-version-card small {
+  color: var(--text-faint);
+  font-size: 9px;
+}
+
+.update-version-card strong {
+  font-size: 11px;
+}
+
+.update-version-card em {
+  color: var(--text-faint);
+  font-family: 'JetBrains Mono', Consolas, monospace;
+  font-size: 8px;
+  font-style: normal;
+}
+
+.update-status {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 9px;
+  background: var(--surface);
+}
+
+.update-status > span:last-child {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.update-status strong {
+  overflow: hidden;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.update-status small {
+  overflow: hidden;
+  color: var(--text-faint);
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.update-status-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+
+.update-available .update-status-dot,
+.update-downloading .update-status-dot {
+  background: var(--amber);
+  box-shadow: 0 0 0 4px var(--amber-soft);
+}
+
+.update-downloaded .update-status-dot,
+.update-not-available .update-status-dot {
+  background: var(--green);
+  box-shadow: 0 0 0 4px var(--green-soft);
+}
+
+.update-error .update-status-dot {
+  background: var(--coral);
+  box-shadow: 0 0 0 4px var(--coral-soft);
+}
+
+.update-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.update-actions .button {
+  white-space: nowrap;
+}
+
 .theme-options {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

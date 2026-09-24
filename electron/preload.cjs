@@ -6,4 +6,11 @@ contextBridge.exposeInMainWorld('desktopAPI', {
     ipcRenderer.invoke('desktop:save-text-file', filename, content),
   scanSources: () => ipcRenderer.invoke('desktop:scan-sources'),
   getRuntimeInfo: () => ipcRenderer.invoke('desktop:get-runtime-info'),
+  checkForUpdates: () => ipcRenderer.invoke('desktop:check-for-updates'),
+  installUpdate: () => ipcRenderer.invoke('desktop:install-update'),
+  onUpdateStatus: (callback) => {
+    const listener = (_event, status) => callback(status)
+    ipcRenderer.on('desktop:update-status', listener)
+    return () => ipcRenderer.removeListener('desktop:update-status', listener)
+  },
 })

@@ -22,6 +22,7 @@
     "dist": "npm run build && npm run icon && electron-builder --win nsis portable --x64 --publish never"
   },
   "dependencies": {
+    "electron-updater": "^6.8.9",
     "lucide-react": "^1.47.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
@@ -74,7 +75,7 @@
       ],
       "icon": "build/icon.ico",
       "requestedExecutionLevel": "asInvoker",
-      "artifactName": "AI-Chronicle-${version}-${arch}.${ext}"
+      "artifactName": "AI-Chronicle-Setup.${ext}"
     },
     "nsis": {
       "oneClick": false,
@@ -88,13 +89,14 @@
       "deleteAppDataOnUninstall": false
     },
     "portable": {
-      "artifactName": "AI-Chronicle-Portable-${version}-${arch}.${ext}"
+      "artifactName": "AI-Chronicle-Portable.${ext}"
     },
     "publish": [
       {
-        "provider": "generic",
-        "url": "https://updates.local.invalid/ai-chronicle",
-        "channel": "latest"
+        "provider": "github",
+        "owner": "liixnglinb",
+        "repo": "AI-Chronicle",
+        "releaseType": "release"
       }
     ]
   }

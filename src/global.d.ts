@@ -27,6 +27,21 @@ declare global {
         }>
       }>
       getRuntimeInfo: () => Promise<DesktopRuntimeInfo>
+      checkForUpdates: () => Promise<{
+        ok: boolean
+        state: string
+        version?: string
+        message?: string
+      }>
+      installUpdate: () => Promise<{ ok: boolean; message?: string }>
+      onUpdateStatus: (
+        callback: (status: {
+          state: string
+          version?: string
+          percent?: number
+          message?: string
+        }) => void,
+      ) => () => void
     }
   }
 }

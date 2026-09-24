@@ -1,21 +1,24 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   CalendarClock,
   Check,
   Database,
+  DownloadCloud,
   EyeOff,
   FileArchive,
   FolderLock,
   HardDrive,
   KeyRound,
+  LoaderCircle,
   Plus,
+  RefreshCw,
   Save,
   ShieldCheck,
   Sparkles,
   SunMoon,
   Trash2,
 } from 'lucide-react'
-import type { ToastMessage } from '../types'
+import type { ToastMessage, UpdateStatus } from '../types'
 import { classNames } from '../lib/utils'
 import { saveText } from '../lib/desktop'
 
@@ -36,6 +39,11 @@ export function SettingsPage({ theme, onToast, onThemeToggle }: SettingsPageProp
     }
   })()
   const [activeSection, setActiveSection] = useState('capture')
+  const [appVersion, setAppVersion] = useState('Web Preview')
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({
+    state: 'idle',
+    message: '等待检查 GitHub Releases。',
+  })
   const [captureEnabled, setCaptureEnabled] = useState(
     storedSettings.captureEnabled !== false,
   )
@@ -59,6 +67,16 @@ export function SettingsPage({ theme, onToast, onThemeToggle }: SettingsPageProp
     'C:\\Program Files',
     '浏览器隐私窗口',
   ])
+
+  useEffect(() => {
+    if (!window.desktopAPI) return undefined
+    window.desktopAPI.getRuntimeInfo().then((info) => {
+      setAppVersion(info.packaged ? info.version : '开发模式')
+    })
+    return window.desktopAPI.onUpdateStatus((status) => {
+      setUpdateStatus(status as UpdateStatus)
+    })
+  }, [])
 
   function goToSection(sectionId: string) {
     setActiveSection(sectionId)
@@ -115,6 +133,40 @@ export function SettingsPage({ theme, onToast, onThemeToggle }: SettingsPageProp
     })
   }
 
+  async function checkForUpdates() {
+    if (!window.desktopAPI) {
+      setUpdateStatus({
+        state: 'unavailable',
+        message: '当前是浏览器预览版，请安装桌面版后检查更新。',
+      })
+      return
+    }
+    setUpdateStatus({ state: 'checking', message: '正在连接 GitHub Releases...' })
+    const result = await window.desktopAPI.checkForUpdates()
+    setUpdateStatus({
+      state: result.state as UpdateStatus['state'],
+      version: result.version,
+      message: result.message,
+    })
+    onToast({
+      tone: result.ok ? 'info' : 'warning',
+      title: result.ok ? '更新检查完成' : '无法检查更新',
+      message: result.message ?? '请稍后再试。',
+    })
+  }
+
+  async function installUpdate() {
+    if (!window.desktopAPI) return
+    const result = await window.desktopAPI.installUpdate()
+    if (!result.ok) {
+      onToast({
+        tone: 'warning',
+        title: '无法安装更新',
+        message: result.message ?? '请稍后再试。',
+      })
+    }
+  }
+
   return (
     <div className="page settings-page">
       <section className="page-heading">
@@ -169,6 +221,14 @@ export function SettingsPage({ theme, onToast, onThemeToggle }: SettingsPageProp
           >
             <FolderLock size={16} />
             排除规则
+          </button>
+          <button
+            className={classNames(activeSection === 'updates' && 'settings-nav-active')}
+            type="button"
+            onClick={() => goToSection('updates')}
+          >
+            <DownloadCloud size={16} />
+            软件更新
           </button>
           <button
             className={classNames(activeSection === 'appearance' && 'settings-nav-active')}
@@ -429,6 +489,71 @@ export function SettingsPage({ theme, onToast, onThemeToggle }: SettingsPageProp
                 </span>
                 {theme === 'dark' && <Check size={16} />}
               </button>
+            </div>
+          </div>
+
+          <div className="settings-section" id="settings-updates">
+            <header>
+              <div>
+                <h2>软件更新</h2>
+                <p>从 GitHub Releases 检查新版本，并在应用内下载安装。</p>
+              </div>
+              <span className="settings-section-icon">
+                <DownloadCloud size={18} />
+              </span>
+            </header>
+            <div className="update-panel">
+              <div className="update-version-card">
+                <span className="update-app-icon">
+                  <DownloadCloud size={21} />
+                </span>
+                <span>
+                  <small>当前版本</small>
+                  <strong>AI 轨迹 v{appVersion}</strong>
+                  <em>liixnglinb/AI-Chronicle</em>
+                </span>
+              </div>
+              <div className={classNames('update-status', `update-${updateStatus.state}`)}>
+                <span className="update-status-dot" />
+                <span>
+                  <strong>
+                    {updateStatus.state === 'checking'
+                      ? '正在检查更新'
+                      : updateStatus.state === 'downloading'
+                        ? `正在下载 ${updateStatus.percent ?? 0}%`
+                        : updateStatus.state === 'downloaded'
+                          ? `v${updateStatus.version} 已准备好`
+                          : updateStatus.state === 'available'
+                            ? `发现 v${updateStatus.version}`
+                            : 'GitHub Releases 更新通道'}
+                  </strong>
+                  <small>{updateStatus.message ?? '发现新版本后会自动下载。'}</small>
+                </span>
+              </div>
+              <div className="update-actions">
+                <button
+                  className="button button-secondary"
+                  type="button"
+                  onClick={checkForUpdates}
+                  disabled={updateStatus.state === 'checking'}
+                >
+                  {updateStatus.state === 'checking' ? (
+                    <LoaderCircle className="spin" size={15} />
+                  ) : (
+                    <RefreshCw size={15} />
+                  )}
+                  检查更新
+                </button>
+                <button
+                  className="button button-primary"
+                  type="button"
+                  onClick={installUpdate}
+                  disabled={updateStatus.state !== 'downloaded'}
+                >
+                  <DownloadCloud size={15} />
+                  安装并重启
+                </button>
+              </div>
             </div>
           </div>
         </section>

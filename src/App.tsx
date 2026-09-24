@@ -3,7 +3,7 @@ import { AppShell } from './components/AppShell'
 import { CommandPalette } from './components/CommandPalette'
 import { ToastStack } from './components/ToastStack'
 import { workstreams } from './data/mockData'
-import type { ToastMessage, ViewId, Workstream } from './types'
+import type { ToastMessage, UpdateStatus, ViewId, Workstream } from './types'
 import './App.css'
 
 const TodayPage = lazy(() =>
@@ -86,6 +86,34 @@ function App() {
     }
     document.title = `${titles[activeView]} · AI 轨迹`
   }, [activeView])
+
+  useEffect(() => {
+    if (!window.desktopAPI) return undefined
+    return window.desktopAPI.onUpdateStatus((status) => {
+      const update = status as UpdateStatus
+      if (update.state === 'available') {
+        pushToast({
+          tone: 'info',
+          title: `发现 AI 轨迹 v${update.version}`,
+          message: '更新正在后台下载，完成后可在设置中安装。',
+        })
+      }
+      if (update.state === 'downloaded') {
+        pushToast({
+          tone: 'success',
+          title: '更新已下载',
+          message: `v${update.version} 已准备完成，可在设置中安装并重启。`,
+        })
+      }
+      if (update.state === 'error') {
+        pushToast({
+          tone: 'warning',
+          title: '更新检查失败',
+          message: update.message ?? '请检查网络后重试。',
+        })
+      }
+    })
+  }, [pushToast])
 
   function navigate(view: ViewId) {
     setActiveView(view)

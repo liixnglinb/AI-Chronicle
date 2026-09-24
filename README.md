@@ -2,6 +2,8 @@
 
 本地优先的 AI 工作观测台前端原型。它把一天中的 AI 会话、项目、时间线和产出文件组织成可追溯的日报，而不是只统计软件开了多久。
 
+仓库：<https://github.com/liixnglinb/AI-Chronicle>
+
 ## 已实现页面
 
 - 今天：日报概览、关键指标、活动时间线、工作线程、成果和证据检查器
@@ -74,8 +76,15 @@ Electron 桌面层目前已经支持：
 - 通过系统保存对话框导出日报、CSV 和备份
 - 扫描 Codex、Claude、Qoder、CatPaw、TRAE、豆包和 Kimi Code 的数据目录
 - 单实例运行和外部链接安全跳转
+- 从 GitHub Releases 检查新版本、后台下载并在设置页安装重启
 
 当前构建尚未配置商业代码签名证书，Windows SmartScreen 可能提示未知发布者。
+
+更新清单发布后位于：
+
+```text
+https://github.com/liixnglinb/AI-Chronicle/releases/latest/download/latest.yml
+```
 
 ## 技术栈
 

@@ -161,3 +161,18 @@ export interface ToastMessage {
   title: string
   message: string
 }
+
+export interface UpdateStatus {
+  state:
+    | 'idle'
+    | 'checking'
+    | 'available'
+    | 'not-available'
+    | 'downloading'
+    | 'downloaded'
+    | 'error'
+    | 'unavailable'
+  version?: string
+  percent?: number
+  message?: string
+}
