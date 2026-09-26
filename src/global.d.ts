@@ -9,6 +9,42 @@ declare global {
     packaged: boolean
   }
 
+  interface IngestSession {
+    id: string
+    tool: string
+    toolName: string
+    toolColor: string
+    title: string
+    project: string
+    projectPath: string
+    start: number | null
+    end: number | null
+    turns: number
+    tokensIn: number
+    tokensOut: number
+    tokensCached: number
+    model: string
+    hasTokens: boolean
+  }
+
+  interface IngestSource {
+    id: string
+    name: string
+    kind: 'connected' | 'observing'
+    status: 'connected' | 'observing' | 'absent' | 'error'
+    sessionCount: number
+    lastActivity: number | null
+    detail: string
+    note: string
+  }
+
+  interface IngestData {
+    generatedAt: number
+    sessions: IngestSession[]
+    sources: IngestSource[]
+    cacheStats: { hit: number; miss: number }
+  }
+
   interface Window {
     desktopAPI?: {
       openPath: (path: string) => Promise<{ ok: boolean; message?: string }>
@@ -26,6 +62,7 @@ declare global {
           lastModified?: string
         }>
       }>
+      ingest: (force?: boolean) => Promise<IngestData>
       getRuntimeInfo: () => Promise<DesktopRuntimeInfo>
       checkForUpdates: () => Promise<{
         ok: boolean

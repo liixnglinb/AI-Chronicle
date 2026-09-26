@@ -2,8 +2,8 @@ import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { AppShell } from './components/AppShell'
 import { CommandPalette } from './components/CommandPalette'
 import { ToastStack } from './components/ToastStack'
-import { workstreams } from './data/mockData'
-import type { ToastMessage, UpdateStatus, ViewId, Workstream } from './types'
+import { ChronicleProvider } from './lib/store'
+import type { ToastMessage, UpdateStatus, ViewId } from './types'
 import './App.css'
 
 const TodayPage = lazy(() =>
@@ -42,11 +42,7 @@ function App() {
   const [theme, setTheme] = useState<'light' | 'dark'>(getInitialTheme)
   const [commandOpen, setCommandOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
-  const [selectedWorkstream, setSelectedWorkstream] = useState<Workstream | undefined>(
-    workstreams[0],
-  )
   const [toasts, setToasts] = useState<ToastMessage[]>([])
-  const [captureActive] = useState(true)
 
   const pushToast = useCallback((toast: Omit<ToastMessage, 'id'>) => {
     const id = Date.now() + Math.floor(Math.random() * 1000)
@@ -77,7 +73,7 @@ function App() {
     const titles: Record<ViewId, string> = {
       today: '今天',
       history: '历史',
-      timeline: '活动时间线',
+      timeline: '时间线',
       projects: '项目',
       library: '成果库',
       insights: '洞察',
@@ -124,17 +120,17 @@ function App() {
   function renderPage() {
     switch (activeView) {
       case 'timeline':
-        return <TimelinePage searchQuery={searchQuery} onToast={pushToast} />
+        return <TimelinePage searchQuery={searchQuery} />
       case 'history':
-        return <HistoryPage onToast={pushToast} />
+        return <HistoryPage />
       case 'projects':
-        return <ProjectsPage searchQuery={searchQuery} onToast={pushToast} />
+        return <ProjectsPage searchQuery={searchQuery} />
       case 'library':
-        return <LibraryPage searchQuery={searchQuery} onToast={pushToast} />
+        return <LibraryPage />
       case 'insights':
-        return <InsightsPage onToast={pushToast} />
+        return <InsightsPage />
       case 'sources':
-        return <SourcesPage onToast={pushToast} />
+        return <SourcesPage />
       case 'settings':
         return (
           <SettingsPage
@@ -147,25 +143,16 @@ function App() {
         )
       case 'today':
       default:
-        return (
-          <TodayPage
-            searchQuery={searchQuery}
-            onToast={pushToast}
-            onOpenEvidence={setSelectedWorkstream}
-            onNavigate={navigate}
-            selectedWorkstream={selectedWorkstream}
-          />
-        )
+        return <TodayPage searchQuery={searchQuery} onToast={pushToast} />
     }
   }
 
   return (
-    <>
+    <ChronicleProvider>
       <AppShell
         activeView={activeView}
         searchQuery={searchQuery}
         theme={theme}
-        captureActive={captureActive}
         onNavigate={navigate}
         onOpenCommand={() => setCommandOpen(true)}
         onSearchChange={setSearchQuery}
@@ -191,6 +178,9 @@ function App() {
         <CommandPalette
           onClose={() => setCommandOpen(false)}
           onNavigate={navigate}
+          onThemeToggle={() =>
+            setTheme((current) => (current === 'light' ? 'dark' : 'light'))
+          }
           onAction={pushToast}
         />
       )}
@@ -198,7 +188,7 @@ function App() {
         toasts={toasts}
         onDismiss={(id) => setToasts((current) => current.filter((toast) => toast.id !== id))}
       />
-    </>
+    </ChronicleProvider>
   )
 }
 

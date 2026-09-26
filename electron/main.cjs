@@ -3,6 +3,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const os = require('node:os')
 const { autoUpdater } = require('electron-updater')
+const { collectAll } = require('./ingest.cjs')
 
 const isDevelopment = !app.isPackaged
 const devServerUrl = process.env.ELECTRON_START_URL
@@ -258,6 +259,33 @@ ipcMain.handle('desktop:scan-sources', async () => {
   }
 })
 
+// ---------------- 真实数据采集 ----------------
+let ingestInFlight = null
+let ingestResult = null
+
+function runIngest(force = false) {
+  if (ingestInFlight) return ingestInFlight
+  if (ingestResult && !force) {
+    // 60 秒内直接复用
+    if (Date.now() - ingestResult.generatedAt < 60_000) {
+      return Promise.resolve(ingestResult)
+    }
+  }
+  ingestInFlight = collectAll({
+    cachePath: path.join(app.getPath('userData'), 'chronicle-ingest-cache.json'),
+  })
+    .then((result) => {
+      ingestResult = result
+      return result
+    })
+    .finally(() => {
+      ingestInFlight = null
+    })
+  return ingestInFlight
+}
+
+ipcMain.handle('desktop:ingest', (_event, force) => runIngest(!!force))
+
 ipcMain.handle('desktop:check-for-updates', async () => {
   if (!app.isPackaged) {
     return {
@@ -314,7 +342,34 @@ if (!singleInstance) {
   app.whenReady().then(() => {
     app.setAppUserModelId('com.aichronicle.desktop')
     createWindow()
-    if (!isSmokeTest) configureUpdater()
+    if (!isSmokeTest) {
+      configureUpdater()
+      // 启动后预热采集（后台跑，结果进缓存，首屏 IPC 立即可用）
+      setTimeout(() => {
+        runIngest().catch(() => {})
+      }, 2000)
+    }
+    // 自检模式：跑一次采集，输出汇总后退出（CHRONICLE_DEBUG=1 electron .）
+    if (process.env.CHRONICLE_DEBUG) {
+      runIngest()
+        .then((r) => {
+          const byTool = {}
+          for (const s of r.sessions) byTool[s.tool] = (byTool[s.tool] || 0) + 1
+          console.log(
+            'CHRONICLE_INGEST ' +
+              JSON.stringify({
+                total: r.sessions.length,
+                byTool,
+                sources: r.sources.map((s) => `${s.id}:${s.status}:${s.sessionCount}`),
+              }),
+          )
+          app.exit(0)
+        })
+        .catch((err) => {
+          console.error('CHRONICLE_INGEST_FAIL', err)
+          app.exit(1)
+        })
+    }
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
     })

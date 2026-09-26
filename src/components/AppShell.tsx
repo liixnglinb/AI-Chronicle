@@ -1,10 +1,7 @@
 import { useState } from 'react'
 import {
-  Bell,
-  CheckCheck,
   ChevronDown,
   Command,
-  FileDown,
   Info,
   Menu,
   Moon,
@@ -12,13 +9,13 @@ import {
   PanelLeftOpen,
   Search,
   Settings2,
-  ShieldCheck,
   Sparkles,
   Sun,
   X,
 } from 'lucide-react'
-import { navItems } from '../data/mockData'
+import { navItems } from '../data/nav'
 import { classNames } from '../lib/utils'
+import { useChronicle } from '../lib/store'
 import type { ToastMessage, ViewId } from '../types'
 
 interface AppShellProps {
@@ -26,7 +23,6 @@ interface AppShellProps {
   children: React.ReactNode
   searchQuery: string
   theme: 'light' | 'dark'
-  captureActive: boolean
   onNavigate: (view: ViewId) => void
   onOpenCommand: () => void
   onSearchChange: (value: string) => void
@@ -39,7 +35,6 @@ export function AppShell({
   children,
   searchQuery,
   theme,
-  captureActive,
   onNavigate,
   onOpenCommand,
   onSearchChange,
@@ -48,10 +43,10 @@ export function AppShell({
 }: AppShellProps) {
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
-  const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
-  const [hasUnread, setHasUnread] = useState(true)
+  const { data, loading } = useChronicle()
   const activeItem = navItems.find((item) => item.id === activeView) ?? navItems[0]
+  const connectedCount = data?.sources.filter((s) => s.status === 'connected').length ?? 0
 
   return (
     <div className={classNames('app-shell', collapsed && 'sidebar-collapsed')}>
@@ -114,7 +109,9 @@ export function AppShell({
                   <strong>{item.label}</strong>
                   <small>{item.description}</small>
                 </span>
-                {item.id === 'sources' && <span className="nav-count">7</span>}
+                {item.id === 'sources' && connectedCount > 0 && (
+                  <span className="nav-count">{connectedCount}</span>
+                )}
               </button>
             )
           })}
@@ -123,19 +120,21 @@ export function AppShell({
         <div className="sidebar-bottom">
           <button className="privacy-card" type="button" onClick={() => onNavigate('settings')}>
             <span className="privacy-icon">
-              <ShieldCheck size={18} />
+              <Sparkles size={18} />
             </span>
             <span className="privacy-copy">
               <strong>数据留在本机</strong>
-              <small>摘要外发默认关闭</small>
+              <small>全部在本机解析，不上传</small>
             </span>
             <ChevronDown size={15} />
           </button>
           <div className="capture-health">
-            <span className={classNames('pulse-dot', captureActive && 'pulse-dot-live')} />
+            <span className={classNames('pulse-dot', !loading && 'pulse-dot-live')} />
             <span>
-              <strong>{captureActive ? '采集正常' : '采集暂停'}</strong>
-              <small>最后同步 13:28</small>
+              <strong>{loading ? '正在采集…' : data ? '真实数据就绪' : '等待采集'}</strong>
+              <small>
+                {data ? `${data.sessions.length} 个会话 · ${connectedCount} 个软件` : '首次约 10–20 秒'}
+              </small>
             </span>
           </div>
         </div>
@@ -163,7 +162,7 @@ export function AppShell({
               <Menu size={19} />
             </button>
             <div className="page-identity">
-              <span className="page-kicker">2026 年 9 月 24 日 · 星期四</span>
+              <span className="page-kicker">{activeItem.description}</span>
               <strong>{activeItem.label}</strong>
             </div>
           </div>
@@ -179,27 +178,13 @@ export function AppShell({
               <input
                 value={searchQuery}
                 onChange={(event) => onSearchChange(event.target.value)}
-                placeholder="搜索会话、项目或成果"
+                placeholder="搜索会话、项目"
                 aria-label="搜索"
               />
               <button className="search-shortcut" type="button" onClick={onOpenCommand}>
                 <Command size={12} /> K
               </button>
             </label>
-            <button
-              className="icon-button"
-              type="button"
-              title="通知"
-              aria-label="通知"
-              aria-expanded={notificationsOpen}
-              onClick={() => {
-                setNotificationsOpen((open) => !open)
-                setProfileOpen(false)
-              }}
-            >
-              <Bell size={17} />
-              {hasUnread && <span className="notification-dot" />}
-            </button>
             <button
               className="icon-button"
               type="button"
@@ -212,105 +197,32 @@ export function AppShell({
             <button
               className="profile-button"
               type="button"
-              aria-label="个人账户"
+              aria-label="应用信息"
               aria-expanded={profileOpen}
-              onClick={() => {
-                setProfileOpen((open) => !open)
-                setNotificationsOpen(false)
-              }}
+              onClick={() => setProfileOpen((open) => !open)}
             >
-              <span>李</span>
+              <Info size={16} />
               <ChevronDown size={13} />
             </button>
-
-            {notificationsOpen && (
-              <div className="topbar-popover notification-popover">
-                <div className="popover-header">
-                  <div>
-                    <strong>通知</strong>
-                    <small>本地系统消息与采集状态</small>
-                  </div>
-                  <button
-                    className="text-button"
-                    type="button"
-                    onClick={() => {
-                      setHasUnread(false)
-                      onToast({
-                        tone: 'success',
-                        title: '通知已清空',
-                        message: '所有未读状态已标记为已读。',
-                      })
-                    }}
-                  >
-                    <CheckCheck size={13} />
-                    全部已读
-                  </button>
-                </div>
-                <div className="notification-list">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      onToast({
-                        tone: 'warning',
-                        title: '有三个适配器需要关注',
-                        message: 'TRAE、豆包和 Kimi Code 当前只能提供行为级记录。',
-                      })
-                    }
-                  >
-                    <span className="notice-mark notice-warning" />
-                    <span>
-                      <strong>数据源覆盖度变化</strong>
-                      <small>3 个适配器需要复核，刚刚</small>
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      onToast({
-                        tone: 'success',
-                        title: '今日日报已生成',
-                        message: '共整理 4 条工作线程和 7 项任务。',
-                      })
-                    }
-                  >
-                    <span className="notice-mark notice-success" />
-                    <span>
-                      <strong>今日日报已准备就绪</strong>
-                      <small>13:28 完成本日增量汇总</small>
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      onToast({
-                        tone: 'info',
-                        title: '每周备份提醒',
-                        message: '下一次自动备份将在周日 20:00 执行。',
-                      })
-                    }
-                  >
-                    <span className="notice-mark notice-info" />
-                    <span>
-                      <strong>每周备份计划正常</strong>
-                      <small>上次备份 9 月 21 日</small>
-                    </span>
-                  </button>
-                </div>
-              </div>
-            )}
 
             {profileOpen && (
               <div className="topbar-popover profile-popover">
                 <div className="profile-summary">
-                  <span>李</span>
+                  <span>AI</span>
                   <span>
-                    <strong>本地用户</strong>
-                    <small>数据仅保存在此设备</small>
+                    <strong>AI 轨迹</strong>
+                    <small>本地优先 · {data ? `${data.sessions.length} 会话` : '采集中'}</small>
                   </span>
                 </div>
-                <button type="button" onClick={() => onNavigate('settings')}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setProfileOpen(false)
+                    onNavigate('settings')
+                  }}
+                >
                   <Settings2 size={15} />
-                  偏好设置
+                  设置
                 </button>
                 <button
                   type="button"
@@ -324,9 +236,7 @@ export function AppShell({
                           dataPath: '浏览器本地存储',
                           packaged: false,
                         }
-                    await navigator.clipboard.writeText(
-                      JSON.stringify(runtime, null, 2),
-                    )
+                    await navigator.clipboard.writeText(JSON.stringify(runtime, null, 2))
                     onToast({
                       tone: 'info',
                       title: '应用信息已复制',
@@ -336,26 +246,7 @@ export function AppShell({
                   }}
                 >
                   <Info size={15} />
-                  应用信息
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setProfileOpen(false)
-                    onNavigate('settings')
-                    window.setTimeout(
-                      () =>
-                        onToast({
-                          tone: 'info',
-                          title: '备份入口已打开',
-                          message: '在“存储与保留”中点击立即备份即可导出。',
-                        }),
-                      250,
-                    )
-                  }}
-                >
-                  <FileDown size={15} />
-                  导出备份
+                  复制应用信息
                 </button>
               </div>
             )}

@@ -1,104 +1,53 @@
 # AI 轨迹
 
-本地优先的 AI 工作观测台前端原型。它把一天中的 AI 会话、项目、时间线和产出文件组织成可追溯的日报，而不是只统计软件开了多久。
+本地优先的 AI 工作观测台。它读取本机各 AI 软件的真实会话日志，回答一个问题：**今天（以及过去每一天）我用各个 agent 软件做了什么**。
 
 仓库：<https://github.com/liixnglinb/AI-Chronicle>
 
-## 已实现页面
+## v0.2 —— 真实数据接入（当前版本）
 
-- 今天：日报概览、关键指标、活动时间线、工作线程、成果和证据检查器
-- 今日任务：任务状态、优先级、进度、工具、时长和完成结果
-- 历史：月历热度、每日摘要、任务档案、最近十八个工作日回看
-- 活动时间线：24 小时多轨时间画布、软件筛选、缩放、回放和会话详情
-- 项目：跨 Codex、Qoder、Cursor 等软件的长期工作线程和历史任务账本
-- 成果库：文档、代码、图片、视频和数据成果，以及对应来源可信度
-- 洞察：投入结构、Token 趋势、软件贡献和年度活跃热力图
-- 数据源：适配器健康状态、启用开关、同步时间和解析路径
-- 设置：采集自动化、隐私、摘要模型、存储、备份和主题
+界面上的每一条记录都来自本机日志解析，没有任何模拟数据：
 
-## 主要交互
+- **已接入 12 个数据源**（自动扫描本机，无需配置）：
+  Claude Code、Codex（含归档会话，按会话去重）、ZCode、OpenCode、WorkBuddy（新旧目录去重）、CatPaw、MHAgent、织流 Loom（ModexData）、Hermes、Agnes、DSH（zstd 解压）
+- 每条会话包含：时间范围、软件、工作目录（项目）、做了什么（首条真实用户输入）、对话轮次、token 用量、模型
+- **观察中数据源诚实标注原因**：Qoder（用量在 IDE 内部库）、TRAE（SQLCipher 加密）、Cursor（仅官方 API）、千问/豆包/Grok Bot（无本地日志）、Kimi/Cline（待适配）、Codex++（并入 Codex）
+- 系统注入文本（`<system-reminder>` / `<sandbox_context>` / AGENTS.md 等）会被剥离后再取标题，轮次统计不受影响
+- 文件级缓存（mtime+size 未变直接复用），首次全量约 10–20 秒，之后亚秒级
 
-- `Ctrl/Cmd + K` 打开命令面板，支持方向键与回车
-- 侧边栏可收起，移动端使用抽屉导航和底部导航
-- 支持浅色与深色主题，偏好保存在本机
-- 点击工作线程查看来源会话和关联产出
-- 在历史页点击日期查看当天概览和任务，并按状态筛选
-- 任务可在今天、历史和项目视图中更新状态
-- 时间线支持缩放、活动选择和播放进度
-- 数据源支持本地暂停和恢复
+## 页面
+
+- **今天**：今日 KPI（会话/软件/轮次/tokens/活跃时段）+ 按时间倒序的真实会话清单 + 一键导出 Markdown 日报
+- **历史**：最近 14 个有记录的日期，按天展开会话
+- **时间线**：今日 24 小时活跃分布 + 时间顺序会话
+- **项目**：按工作目录聚合，看每个项目花了多少会话/轮次/tokens
+- **洞察**：各软件 token 消耗、近 14 天趋势、贡献排行
+- **数据源**：接入状态、会话数、观察原因；支持强制重新采集
+- **设置**：主题、重新采集、JSON 全量备份、运行环境
+
+主要交互：`Ctrl/Cmd + K` 命令面板（可搜全部会话）、侧边栏可收起、深浅主题。
 
 ## 运行
 
 ```bash
 npm install
-npm run dev
+npm run dev          # 浏览器预览（无文件权限，仅看界面结构）
+npm run dev:desktop  # Electron 开发模式（真实数据）
 ```
 
-默认开发地址：`http://127.0.0.1:5173`
-
-生产和检查：
+## Windows 打包
 
 ```bash
-npm run lint
-npm run build
-npm run preview
+npm run dist   # release/ 下产出 Setup 安装版 + Portable 便携版 + latest.yml
 ```
 
-## Windows 桌面版
+- 技术栈：Electron 44（Node 24 内置 `node:sqlite` 只读直连各软件数据库，零原生模块）+ React 19 + TypeScript + Vite 8 + Recharts + fzstd（纯 JS zstd）
+- 自动更新：electron-updater，更新清单 `releases/latest/download/latest.yml`
+- 采集层实现见 `electron/ingest.cjs`；自检：`CHRONICLE_DEBUG=1 electron .` 输出采集汇总后退出
+- 诊断脚本：`scripts/survey_sources.py`（数据源普查）、`scripts/test-ingest.cjs`（采集层独立验证）
 
-开发模式：
+当前构建未配置商业代码签名，Windows SmartScreen 可能提示未知发布者。
 
-```bash
-npm run dev:desktop
-```
+## 隐私
 
-生成桌面资源但不制作安装程序：
-
-```bash
-npm run pack
-```
-
-生成 Windows x64 安装版和便携版：
-
-```bash
-npm run dist
-```
-
-产物位于 `release/`：
-
-- `AI-Chronicle-0.1.0-x64.exe`：NSIS 安装程序
-- `AI-Chronicle-Portable-0.1.0-x64.exe`：免安装便携版
-- `win-unpacked/AI轨迹.exe`：用于本地调试和解包运行
-
-Electron 桌面层目前已经支持：
-
-- 打开本地文件和目录
-- 通过系统保存对话框导出日报、CSV 和备份
-- 扫描 Codex、Claude、Qoder、CatPaw、TRAE、豆包和 Kimi Code 的数据目录
-- 单实例运行和外部链接安全跳转
-- 从 GitHub Releases 检查新版本、后台下载并在设置页安装重启
-
-当前构建尚未配置商业代码签名证书，Windows SmartScreen 可能提示未知发布者。
-
-更新清单发布后位于：
-
-```text
-https://github.com/liixnglinb/AI-Chronicle/releases/latest/download/latest.yml
-```
-
-## 技术栈
-
-- React 19
-- TypeScript
-- Vite 8
-- Lucide Icons
-- Recharts
-- 原生 CSS 设计令牌、容器响应式与深浅主题
-
-## 当前数据状态
-
-界面当前主要使用本机 AI 工作场景的模拟数据，覆盖 Codex、Claude、Qoder、CatPaw、Cursor、TRAE、Pi Desktop、豆包、千问和 Kimi Code。
-
-真实接入时，后端适配器只需要向页面提供标准化数据：应用、项目、会话、事件、成果、日报和适配器状态。前端不需要知道每个软件的具体日志格式。
-
-当前桌面版已经能检查部分数据目录和统计当天修改文件，但还没有把所有软件日志解析成真实会话、任务和日报。这是下一阶段的数据采集后端工作。
+全部数据在本机解析与保存，不联网上传任何会话内容。日志读取为只读操作。
