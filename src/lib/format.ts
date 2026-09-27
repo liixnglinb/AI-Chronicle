@@ -1,16 +1,4 @@
-// 展示格式化工具
-
-export function formatTokens(n: number): string {
-  if (!Number.isFinite(n) || n <= 0) return '0'
-  if (n >= 1e8) {
-    const v = n / 1e8
-    return `${v >= 10 ? v.toFixed(0) : v.toFixed(1)} 亿`
-  }
-  if (n >= 1e4) {
-    return `${(n / 1e4).toFixed(n >= 1e6 ? 0 : 1)} 万`
-  }
-  return String(Math.round(n))
-}
+// 展示格式化工具（工作日志视角：时间 / 轮次 / 文件，不含 token 计价）
 
 export function formatClock(ms: number): string {
   const d = new Date(ms)
@@ -71,12 +59,4 @@ export function formatDuration(mins: number): string {
   const h = Math.floor(mins / 60)
   const m = mins % 60
   return m ? `${h} 小时 ${m} 分` : `${h} 小时`
-}
-
-export function totalTokens(s: {
-  tokensIn: number
-  tokensOut: number
-  tokensCached: number
-}): number {
-  return (s.tokensIn || 0) + (s.tokensOut || 0) + (s.tokensCached || 0)
 }

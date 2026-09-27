@@ -1,5 +1,5 @@
 import { ToolDot } from './ToolDot'
-import { formatTimeRange, totalTokens, formatTokens } from '../lib/format'
+import { formatTimeRange } from '../lib/format'
 import type { SessionRecord } from '../types'
 
 interface SessionRowProps {
@@ -8,7 +8,6 @@ interface SessionRowProps {
 }
 
 export function SessionRow({ session, compact = false }: SessionRowProps) {
-  const tokens = totalTokens(session)
   return (
     <div className={compact ? 'session-row session-row-compact' : 'session-row'}>
       <div className="session-row-time">
@@ -22,7 +21,6 @@ export function SessionRow({ session, compact = false }: SessionRowProps) {
         <div className="session-row-meta">
           <span className="session-project">{session.project}</span>
           {session.turns > 0 && <span>{session.turns} 轮</span>}
-          {tokens > 0 && <span>{formatTokens(tokens)} tokens</span>}
           {session.model && <span className="session-model">{session.model}</span>}
         </div>
       </div>

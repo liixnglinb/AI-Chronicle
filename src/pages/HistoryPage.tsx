@@ -1,14 +1,7 @@
 import { useMemo, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { useChronicle } from '../lib/store'
-import {
-  dayKeyOf,
-  formatDayLabel,
-  formatDuration,
-  formatTokens,
-  sessionDurationMinutes,
-  totalTokens,
-} from '../lib/format'
+import { dayKeyOf, formatDayLabel, formatDuration, sessionDurationMinutes } from '../lib/format'
 import { SessionRow } from '../components/SessionRow'
 import { ToolDot } from '../components/ToolDot'
 import type { SessionRecord } from '../types'
@@ -22,18 +15,17 @@ export function HistoryPage() {
   const days = useMemo(() => {
     const map = new Map<
       string,
-      { sessions: SessionRecord[]; tokens: number; tools: Map<string, { name: string; color: string }> }
+      { sessions: SessionRecord[]; tools: Map<string, { name: string; color: string }> }
     >()
     for (const s of data?.sessions ?? []) {
       if (!s.start) continue
       const key = dayKeyOf(s.start)
       let day = map.get(key)
       if (!day) {
-        day = { sessions: [], tokens: 0, tools: new Map() }
+        day = { sessions: [], tools: new Map() }
         map.set(key, day)
       }
       day.sessions.push(s)
-      day.tokens += totalTokens(s)
       if (!day.tools.has(s.tool)) {
         day.tools.set(s.tool, { name: s.toolName, color: s.toolColor })
       }
@@ -43,7 +35,7 @@ export function HistoryPage() {
       const day = map.get(key)!
       const sessions = [...day.sessions].sort((a, b) => (b.start || 0) - (a.start || 0))
       const minutes = sessions.reduce((sum, s) => sum + sessionDurationMinutes(s), 0)
-      return { key, sessions, tokens: day.tokens, tools: [...day.tools.values()], minutes }
+      return { key, sessions, tools: [...day.tools.values()], minutes }
     })
   }, [data])
 
@@ -96,7 +88,6 @@ export function HistoryPage() {
                   <span className="history-day-meta">
                     {day.sessions.length} 会话
                     {day.minutes > 0 && ` · 跨度 ${formatDuration(day.minutes)}`}
-                    {day.tokens > 0 && ` · ${formatTokens(day.tokens)} tokens`}
                   </span>
                 </div>
                 <div className="history-day-tools">

@@ -1,13 +1,7 @@
 import { useMemo, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { useChronicle } from '../lib/store'
-import {
-  dayKeyOf,
-  formatDayLabel,
-  formatTokens,
-  formatTimeRange,
-  totalTokens,
-} from '../lib/format'
+import { dayKeyOf, formatDayLabel, formatTimeRange } from '../lib/format'
 import { SessionRow } from '../components/SessionRow'
 import { ToolDot } from '../components/ToolDot'
 import type { SessionRecord } from '../types'
@@ -21,8 +15,8 @@ interface ProjectGroup {
   name: string
   path: string
   sessions: SessionRecord[]
-  tokens: number
   turns: number
+  artifacts: number
   lastActive: number
   tools: { name: string; color: string }[]
 }
@@ -42,16 +36,16 @@ export function ProjectsPage({ searchQuery }: ProjectsPageProps) {
           name: s.project || '(未知位置)',
           path: key,
           sessions: [],
-          tokens: 0,
           turns: 0,
+          artifacts: 0,
           lastActive: 0,
           tools: [],
         }
         map.set(key, group)
       }
       group.sessions.push(s)
-      group.tokens += totalTokens(s)
       group.turns += s.turns
+      group.artifacts += (s.artifacts ?? []).length
       const end = s.end || s.start || 0
       if (end > group.lastActive) group.lastActive = end
       if (!group.tools.some((t) => t.name === s.toolName)) {
@@ -127,7 +121,7 @@ export function ProjectsPage({ searchQuery }: ProjectsPageProps) {
                 <div className="project-card-meta">
                   <span>{p.sessions.length} 会话</span>
                   <span>{p.turns} 轮</span>
-                  {p.tokens > 0 && <span>{formatTokens(p.tokens)} tokens</span>}
+                  {p.artifacts > 0 && <span>{p.artifacts} 产出</span>}
                   {todayCount > 0 && <span className="project-today">今天 {todayCount}</span>}
                   <span className="project-last">最近 {formatDayLabel(dayKeyOf(p.lastActive))}</span>
                 </div>

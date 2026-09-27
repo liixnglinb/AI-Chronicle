@@ -4,10 +4,8 @@ import { useChronicle } from '../lib/store'
 import {
   dayKeyOf,
   formatClock,
-  formatTokens,
   formatTimeRange,
   sessionTouchesDay,
-  totalTokens,
 } from '../lib/format'
 import { saveText } from '../lib/desktop'
 import { SessionRow } from '../components/SessionRow'
@@ -23,10 +21,14 @@ function buildDailyReport(sessions: SessionRecord[]): string {
   const key = dayKeyOf(Date.now())
   lines.push(`# AI 工作日报 · ${key}`)
   lines.push('')
-  const tokens = sessions.reduce((sum, s) => sum + totalTokens(s), 0)
   const tools = new Set(sessions.map((s) => s.toolName))
+  const turns = sessions.reduce((sum, s) => sum + s.turns, 0)
+  const artifacts = new Set<string>()
+  for (const s of sessions) {
+    for (const a of s.artifacts ?? []) artifacts.add(a.path)
+  }
   lines.push(
-    `今日共 ${sessions.length} 个会话，涉及 ${tools.size} 个软件，累计 ${formatTokens(tokens)} tokens。`,
+    `今日共 ${sessions.length} 个会话，涉及 ${tools.size} 个软件，${turns} 轮对话，产出 ${artifacts.size} 个文件。`,
   )
   lines.push('')
   lines.push('| 时间 | 软件 | 项目 | 做了什么 | 轮次 |')
@@ -35,6 +37,16 @@ function buildDailyReport(sessions: SessionRecord[]): string {
     lines.push(
       `| ${formatTimeRange(s.start, s.end)} | ${s.toolName} | ${s.project} | ${s.title.replace(/\|/g, '｜')} | ${s.turns} |`,
     )
+  }
+  if (artifacts.size) {
+    lines.push('')
+    lines.push('## 产出文件')
+    lines.push('')
+    for (const s of sessions) {
+      for (const a of s.artifacts ?? []) {
+        lines.push(`- ${a.path}（${s.toolName} · ${s.project}）`)
+      }
+    }
   }
   return lines.join('\n')
 }
@@ -73,12 +85,15 @@ export function TodayPage({ searchQuery, onToast }: TodayPageProps) {
 
   const kpis = useMemo(() => {
     if (!today.length) return null
-    const tokens = today.reduce((sum, s) => sum + totalTokens(s), 0)
     const turns = today.reduce((sum, s) => sum + s.turns, 0)
+    const artifacts = new Set<string>()
+    for (const s of today) {
+      for (const a of s.artifacts ?? []) artifacts.add(a.path)
+    }
     const starts = today.map((s) => s.start as number)
     const ends = today.map((s) => (s.end || s.start) as number)
     return {
-      tokens,
+      artifacts: artifacts.size,
       turns,
       first: formatClock(Math.min(...starts)),
       last: formatClock(Math.max(...ends)),
@@ -172,8 +187,8 @@ export function TodayPage({ searchQuery, onToast }: TodayPageProps) {
             <strong>{kpis.turns}</strong>
           </div>
           <div className="kpi-card">
-            <small>Tokens（含缓存）</small>
-            <strong>{formatTokens(kpis.tokens)}</strong>
+            <small>产出文件</small>
+            <strong>{kpis.artifacts}</strong>
           </div>
           <div className="kpi-card">
             <small>活跃时段</small>

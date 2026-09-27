@@ -380,7 +380,8 @@ if (!singleInstance) {
                       '.source-card-list,.project-list,.history-day-list,' +
                       '.settings-block,.hour-grid,.artifact-list',
                     )
-                    if (ready || Date.now() - start > 20000) {
+                    const loading = document.querySelector('.page-loading,.page-loading > span')
+                    if ((ready && !loading) || Date.now() - start > 20000) {
                       clearInterval(timer)
                       resolve(true)
                     }
@@ -388,11 +389,12 @@ if (!singleInstance) {
                 })`,
               )
               .catch(() => {})
-            await new Promise((resolve) => setTimeout(resolve, 400))
+            await new Promise((resolve) => setTimeout(resolve, 1200))
             const diag = await win.webContents
               .executeJavaScript(
                 `JSON.stringify({
                   theme: document.documentElement.dataset.theme,
+                  contentChildren: document.querySelector('.content')?.childElementCount ?? -1,
                   active: (() => {
                     const el = document.querySelector('.nav-item-active')
                     if (!el) return 'none'

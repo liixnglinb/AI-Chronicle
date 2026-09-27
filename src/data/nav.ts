@@ -44,7 +44,7 @@ export const navItems: NavItem[] = [
   {
     id: 'insights',
     label: '洞察',
-    description: '软件与 token 趋势',
+    description: '软件投入与节奏',
     icon: ChartNoAxesCombined,
   },
   {
