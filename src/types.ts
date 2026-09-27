@@ -40,8 +40,9 @@ export type UpdateStatus = {
 }
 
 // 会话与数据源的结构与 electron/ingest.cjs 输出保持一致
-// （IngestSession / IngestSource / IngestData 以全局接口声明在 global.d.ts）
+// （IngestSession / IngestSource / IngestData / SessionArtifact 以全局接口声明在 global.d.ts）
 
 export type SessionRecord = IngestSession
 export type SourceRecord = IngestSource
 export type ChronicleData = IngestData
+export type ArtifactRecord = SessionArtifact

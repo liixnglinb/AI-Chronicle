@@ -9,6 +9,13 @@ declare global {
     packaged: boolean
   }
 
+  interface SessionArtifact {
+    name: string
+    path: string
+    size: number
+    mtime: number
+  }
+
   interface IngestSession {
     id: string
     tool: string
@@ -25,6 +32,7 @@ declare global {
     tokensCached: number
     model: string
     hasTokens: boolean
+    artifacts: SessionArtifact[]
   }
 
   interface IngestSource {

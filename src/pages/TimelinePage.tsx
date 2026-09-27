@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { useChronicle } from '../lib/store'
-import { dayKeyOf } from '../lib/format'
+import { dayKeyOf, sessionTouchesDay } from '../lib/format'
 import { SessionRow } from '../components/SessionRow'
 
 interface TimelinePageProps {
@@ -13,7 +13,7 @@ export function TimelinePage({ searchQuery }: TimelinePageProps) {
   const today = useMemo(() => {
     const key = dayKeyOf(Date.now())
     return (data?.sessions ?? [])
-      .filter((s) => s.start && dayKeyOf(s.start) === key)
+      .filter((s) => sessionTouchesDay(s, key))
       .sort((a, b) => (a.start || 0) - (b.start || 0))
   }, [data])
 

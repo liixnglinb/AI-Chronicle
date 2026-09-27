@@ -6,6 +6,7 @@ import {
   formatClock,
   formatTokens,
   formatTimeRange,
+  sessionTouchesDay,
   totalTokens,
 } from '../lib/format'
 import { saveText } from '../lib/desktop'
@@ -45,7 +46,7 @@ export function TodayPage({ searchQuery, onToast }: TodayPageProps) {
     const key = dayKeyOf(Date.now())
     const all = data?.sessions ?? []
     return all
-      .filter((s) => s.start && dayKeyOf(s.start) === key)
+      .filter((s) => sessionTouchesDay(s, key))
       .sort((a, b) => (b.start || 0) - (a.start || 0))
   }, [data])
 

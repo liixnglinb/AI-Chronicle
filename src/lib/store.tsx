@@ -43,6 +43,25 @@ export function ChronicleProvider({ children }: { children: ReactNode }) {
     void load(false)
   }, [load])
 
+  // 数据保活：窗口聚焦 / 每 60 秒静默刷新一次。
+  // 采集层有文件级缓存，未变化的文件直接复用，代价很小。
+  useEffect(() => {
+    if (!isDesktop) return undefined
+    const onFocus = () => {
+      void load(false)
+    }
+    const timer = window.setInterval(() => {
+      void load(false)
+    }, 60_000)
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onFocus)
+    return () => {
+      window.clearInterval(timer)
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onFocus)
+    }
+  }, [isDesktop, load])
+
   const value = useMemo<ChronicleContextValue>(
     () => ({ data, loading, error, isDesktop, refresh: load }),
     [data, loading, error, isDesktop, load],

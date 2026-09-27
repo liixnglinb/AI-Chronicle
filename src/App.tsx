@@ -3,6 +3,7 @@ import { AppShell } from './components/AppShell'
 import { CommandPalette } from './components/CommandPalette'
 import { ToastStack } from './components/ToastStack'
 import { ChronicleProvider } from './lib/store'
+import { navItems } from './data/nav'
 import type { ToastMessage, UpdateStatus, ViewId } from './types'
 import './App.css'
 
@@ -32,13 +33,24 @@ const SettingsPage = lazy(() =>
 )
 
 function getInitialTheme(): 'light' | 'dark' {
+  const param = new URLSearchParams(window.location.search).get('theme')
+  if (param === 'light' || param === 'dark') return param
   const stored = window.localStorage.getItem('ai-chronicle-theme')
   if (stored === 'light' || stored === 'dark') return stored
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
 }
 
+// 支持 ?view=xxx 直达某个页面（截图自检 / 深链）
+function getInitialView(): ViewId {
+  const param = new URLSearchParams(window.location.search).get('view')
+  if (param && navItems.some((item) => item.id === param)) {
+    return param as ViewId
+  }
+  return 'today'
+}
+
 function App() {
-  const [activeView, setActiveView] = useState<ViewId>('today')
+  const [activeView, setActiveView] = useState<ViewId>(getInitialView)
   const [theme, setTheme] = useState<'light' | 'dark'>(getInitialTheme)
   const [commandOpen, setCommandOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -126,7 +138,7 @@ function App() {
       case 'projects':
         return <ProjectsPage searchQuery={searchQuery} />
       case 'library':
-        return <LibraryPage />
+        return <LibraryPage searchQuery={searchQuery} />
       case 'insights':
         return <InsightsPage />
       case 'sources':

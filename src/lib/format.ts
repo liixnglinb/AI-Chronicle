@@ -17,9 +17,18 @@ export function formatClock(ms: number): string {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
+function formatDayClock(ms: number): string {
+  const d = new Date(ms)
+  return `${d.getMonth() + 1}/${d.getDate()} ${formatClock(ms)}`
+}
+
 export function formatTimeRange(start: number | null, end: number | null): string {
   if (!start) return '--:--'
   if (!end || end === start) return formatClock(start)
+  // 跨零点的会话带上日期，避免「05:01 – 01:42」这类歧义
+  if (dayKeyOf(start) !== dayKeyOf(end)) {
+    return `${formatDayClock(start)} → ${formatDayClock(end)}`
+  }
   return `${formatClock(start)} – ${formatClock(end)}`
 }
 
@@ -28,6 +37,16 @@ export function dayKeyOf(ms: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
     d.getDate(),
   ).padStart(2, '0')}`
+}
+
+// 会话归属某天：开始或结束落在该天都算（跨零点的长会话两端都能看到）
+export function sessionTouchesDay(
+  s: { start: number | null; end: number | null },
+  key: string,
+): boolean {
+  if (!s.start) return false
+  if (dayKeyOf(s.start) === key) return true
+  return !!s.end && dayKeyOf(s.end) === key
 }
 
 export function formatDayLabel(key: string): string {

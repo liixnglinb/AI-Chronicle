@@ -32,9 +32,9 @@ const TOOLS = {
 const HOME = os.homedir()
 const APPDATA = process.env.APPDATA || path.join(HOME, 'AppData', 'Roaming')
 
-const MAX_FILE_BYTES = 96 * 1024 * 1024
+const MAX_FILE_BYTES = 512 * 1024 * 1024
 const MAX_FILES_PER_SOURCE = 4000
-const SOURCE_BUDGET_MS = 25_000
+const SOURCE_BUDGET_MS = 90_000
 
 function expandPath(value) {
   return String(value)
@@ -158,6 +158,7 @@ function makeSession(tool, id) {
     tokensCached: 0,
     model: '',
     hasTokens: false,
+    artifacts: [],
   }
 }
 
@@ -172,7 +173,7 @@ function finalizeSession(s) {
 
 // ---------------------------------------------------------------- 文件枚举
 const SKIP_DIRS = new Set([
-  'cache', 'code cache', 'gpucache', 'crashpad', 'node_modules', 'subagents',
+  'cache', 'code cache', 'gpucache', 'crashpad', 'node_modules',
   'backups', 'tmp', 'blob_storage', 'serviceworker', 'telemetry', '.git',
 ])
 
@@ -245,31 +246,36 @@ async function eachJsonlLine(filePath, onLine) {
 //     timestamp 为毫秒；另有 type=ai-title 可作标题
 function parseClaudeLikeFile(tool, filePath, dirNameHint) {
   const session = makeSession(tool, `${tool}:${filePath}`)
-  const seenUsage = new Set()
+  // 同一 message.id 的用量可能重复出现（请求/重试/流式更新），
+  // 与 Token Monitor 同口径：保留末条
+  const usageMap = new Map()
+  const isSubagent = filePath.split(/[\\/]/).includes('subagents')
   return eachJsonlLine(filePath, (obj) => {
     if (!obj || typeof obj !== 'object') return
-    if (obj.isSidechain) return
+    const skipTurns = isSubagent || !!obj.isSidechain
     const ts = msFromValue(obj.timestamp)
     if (ts) {
       if (session.start === null || ts < session.start) session.start = ts
       if (session.end === null || ts > session.end) session.end = ts
     }
-    if (!session.projectPath) {
-      if (typeof obj.cwd === 'string' && obj.cwd) {
-        session.projectPath = obj.cwd
-      } else if (dirNameHint) {
-        session.projectPath = decodeDirProject(dirNameHint)
+    if (!skipTurns) {
+      if (!session.projectPath) {
+        if (typeof obj.cwd === 'string' && obj.cwd) {
+          session.projectPath = obj.cwd
+        } else if (dirNameHint) {
+          session.projectPath = decodeDirProject(dirNameHint)
+        }
+        if (session.projectPath) session.project = basenameOf(session.projectPath)
       }
-      if (session.projectPath) session.project = basenameOf(session.projectPath)
-    }
-    if (session.id === `${tool}:${filePath}`) {
-      const sid = obj.sessionId || obj.session_id
-      if (typeof sid === 'string' && sid) session.id = `${tool}:${sid}`
-    }
-    // WorkBuddy ai-title
-    if (obj.type === 'ai-title' && !session.title) {
-      const cand = obj.title || obj.aiTitle || obj.text || obj.content
-      if (typeof cand === 'string') session.title = pickTitle(cand)
+      if (session.id === `${tool}:${filePath}`) {
+        const sid = obj.sessionId || obj.session_id
+        if (typeof sid === 'string' && sid) session.id = `${tool}:${sid}`
+      }
+      // WorkBuddy ai-title
+      if (obj.type === 'ai-title' && !session.title) {
+        const cand = obj.title || obj.aiTitle || obj.text || obj.content
+        if (typeof cand === 'string') session.title = pickTitle(cand)
+      }
     }
 
     // ---- Claude 形态 ----
@@ -280,18 +286,22 @@ function parseClaudeLikeFile(tool, filePath, dirNameHint) {
       const usage = m.usage || obj.usage
       if (obj.type === 'assistant' && usage && typeof usage === 'object') {
         const key = m.id || obj.uuid
-        if (!(key && seenUsage.has(key))) {
-          if (key) seenUsage.add(key)
-          session.tokensIn += usage.input_tokens || 0
-          session.tokensCached +=
-            (usage.cache_read_input_tokens || 0) +
-            (usage.cache_creation_input_tokens || 0)
-          session.tokensOut += usage.output_tokens || 0
+        const entry = [
+          usage.input_tokens || 0,
+          (usage.cache_read_input_tokens || 0) +
+            (usage.cache_creation_input_tokens || 0),
+          usage.output_tokens || 0,
+        ]
+        if (key) usageMap.set(String(key), entry)
+        else {
+          session.tokensIn += entry[0]
+          session.tokensCached += entry[1]
+          session.tokensOut += entry[2]
           session.hasTokens = true
-          if (m.model && !session.model) session.model = m.model
         }
+        if (m.model && !session.model) session.model = m.model
       }
-      if (role === 'user' && !obj.isMeta) {
+      if (role === 'user' && !obj.isMeta && !skipTurns) {
         let texts = []
         if (typeof contents === 'string') texts = [contents]
         else if (Array.isArray(contents)) {
@@ -309,7 +319,7 @@ function parseClaudeLikeFile(tool, filePath, dirNameHint) {
     }
 
     // ---- WorkBuddy message 形态 ----
-    if (obj.type === 'message') {
+    if (obj.type === 'message' && !skipTurns) {
       const role = obj.role
       const contents = Array.isArray(obj.content) ? obj.content : []
       if (role === 'user') {
@@ -322,9 +332,22 @@ function parseClaudeLikeFile(tool, filePath, dirNameHint) {
       }
     }
   }).then(() => {
-    if (!session.projectPath && dirNameHint) {
+    // 汇总 usageMap（末条口径）
+    for (const [inp, cached, out] of usageMap.values()) {
+      session.tokensIn += inp
+      session.tokensCached += cached
+      session.tokensOut += out
+    }
+    if (usageMap.size > 0) session.hasTokens = true
+    if (!session.projectPath && dirNameHint && !isSubagent) {
       session.projectPath = decodeDirProject(dirNameHint)
       session.project = basenameOf(session.projectPath)
+    }
+    if (isSubagent) {
+      // 以文件名为准的临时 id，随后并入父会话
+      session.id = `${tool}:sub:${filePath}`
+    } else if (session.id === `${tool}:${filePath}`) {
+      session.id = `${tool}:${path.basename(filePath, '.jsonl')}`
     }
     return finalizeSession(session)
   })
@@ -794,18 +817,130 @@ async function parseDshFile(filePath, projectName) {
   return finalizeSession(session)
 }
 
+// ================================================================ 成果文件提取
+// 对最近几天的会话，扫描其项目目录里「会话时间窗内被修改过的文件」。
+// 按项目目录聚合走一遍树（同项目多会话只扫一次），把文件按 mtime
+// 分配给时间窗覆盖它的会话。只读，不上传。
+const ARTIFACT_WINDOW_MS = 5 * 60_000 // 时间窗前后各放宽 5 分钟
+const ARTIFACTS_PER_SESSION = 12
+const ARTIFACT_MAX_FILE_BYTES = 32 * 1024 * 1024
+const ARTIFACT_WALK_CAP = 6000
+const ARTIFACT_SKIP = new Set([
+  ...SKIP_DIRS,
+  '.git', 'dist', 'build', 'release', 'out', 'target', '.next', 'venv',
+  '.venv', '__pycache__', '.gradle', '.idea', '.vscode', 'coverage',
+  '.playwright-cli', '.mimosa', 'ai-chronicle', 'release2',
+])
+
+function listProjectFiles(root, minMs, maxMs, state) {
+  const out = []
+  function walk(dir, depth) {
+    if (depth > 4 || out.length >= ARTIFACT_WALK_CAP) {
+      if (out.length >= ARTIFACT_WALK_CAP) state.truncated = true
+      return
+    }
+    let entries
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      if (out.length >= ARTIFACT_WALK_CAP) {
+        state.truncated = true
+        return
+      }
+      const full = path.join(dir, entry.name)
+      if (entry.isDirectory()) {
+        if (!ARTIFACT_SKIP.has(entry.name.toLowerCase())) walk(full, depth + 1)
+        continue
+      }
+      if (!entry.isFile()) continue
+      try {
+        const st = fs.statSync(full)
+        if (st.size > ARTIFACT_MAX_FILE_BYTES) continue
+        if (st.mtimeMs >= minMs && st.mtimeMs <= maxMs) {
+          out.push({ path: full, name: entry.name, size: st.size, mtime: st.mtimeMs })
+        }
+      } catch {
+        // 忽略消失/锁定的文件
+      }
+    }
+  }
+  if (fs.existsSync(root)) walk(root, 0)
+  out.sort((a, b) => b.mtime - a.mtime)
+  return out
+}
+
+function attachArtifacts(sessions) {
+  const now = Date.now()
+  const recent = sessions.filter(
+    (s) =>
+      s.end &&
+      now - s.end <= 3 * 86_400_000 &&
+      s.projectPath &&
+      path.isAbsolute(s.projectPath) &&
+      fs.existsSync(s.projectPath),
+  )
+  if (!recent.length) return 0
+
+  // 按项目目录分组（realpath 归一，junction 双写只算一次）
+  const byProject = new Map()
+  for (const s of recent) {
+    let real = s.projectPath
+    try {
+      real = fs.realpathSync.native(s.projectPath)
+    } catch {
+      // 保留原路径
+    }
+    let group = byProject.get(real)
+    if (!group) {
+      group = { root: s.projectPath, sessions: [], min: Infinity, max: -Infinity }
+      byProject.set(real, group)
+    }
+    group.sessions.push(s)
+    const lo = (s.start || s.end) - ARTIFACT_WINDOW_MS
+    const hi = s.end + ARTIFACT_WINDOW_MS
+    if (lo < group.min) group.min = lo
+    if (hi > group.max) group.max = hi
+  }
+
+  let assigned = 0
+  for (const group of byProject.values()) {
+    const state = { truncated: false }
+    const files = listProjectFiles(group.root, group.min, group.max, state)
+    for (const s of group.sessions) {
+      const lo = (s.start || s.end) - ARTIFACT_WINDOW_MS
+      const hi = s.end + ARTIFACT_WINDOW_MS
+      for (const f of files) {
+        if (s.artifacts.length >= ARTIFACTS_PER_SESSION) break
+        if (f.mtime >= lo && f.mtime <= hi) {
+          s.artifacts.push({
+            name: f.name,
+            path: f.path,
+            size: f.size,
+            mtime: f.mtime,
+          })
+          assigned += 1
+        }
+      }
+    }
+  }
+  return assigned
+}
+
 // ================================================================ 缓存
 class IngestCache {
   constructor(cachePath) {
     this.cachePath = cachePath
-    this.data = { v: 1, files: {} }
+    this.data = { v: 2, files: {} }
     this.dirty = false
     try {
       const raw = fs.readFileSync(cachePath, 'utf8')
       const parsed = JSON.parse(raw)
-      if (parsed && parsed.v === 1 && parsed.files) this.data = parsed
+      if (parsed && parsed.v === 2 && parsed.files) this.data = parsed
     } catch {
-      // 首次没有缓存
+      // 首次或版本变更后全量重扫
     }
   }
 
@@ -904,6 +1039,38 @@ async function collectAll(options = {}) {
       }
       if (session) collected.push({ session, file: f })
     }
+    // 子代理会话并入父会话（token/时间合并，轮次与标题留在父会话）
+    if (opts.mergeSubagents) {
+      const sessionMap = new Map()
+      for (const item of collected) sessionMap.set(item.session.id, item.session)
+      const mergedIdx = new Set()
+      for (let i = 0; i < collected.length; i++) {
+        const item = collected[i]
+        if (!item.session.id.includes(':sub:')) continue
+        const parentDir = path.dirname(path.dirname(item.file.path))
+        const parent = sessionMap.get(`${id}:${path.basename(parentDir)}`)
+        if (parent && parent !== item.session) {
+          parent.tokensIn += item.session.tokensIn
+          parent.tokensCached += item.session.tokensCached
+          parent.tokensOut += item.session.tokensOut
+          parent.hasTokens = parent.hasTokens || item.session.hasTokens
+          if (item.session.start !== null && (parent.start === null || item.session.start < parent.start)) {
+            parent.start = item.session.start
+          }
+          if (item.session.end !== null && (parent.end === null || item.session.end > parent.end)) {
+            parent.end = item.session.end
+          }
+          mergedIdx.add(i)
+        } else if (!item.session.hasTokens && item.session.turns === 0) {
+          // 找不到父会话、又没有任何内容的子代理文件：丢弃
+          mergedIdx.add(i)
+        } else {
+          item.session.title = '(子代理任务)'
+        }
+      }
+      const remaining = collected.filter((_it, i) => !mergedIdx.has(i))
+      return finishSource(remaining)
+    }
     // Codex：sessions 与 archived_sessions 可能含同一会话，按文件名 UUID 去重取更大者
     if (opts.dedupeByUuid) {
       const byUuid = new Map()
@@ -975,7 +1142,7 @@ async function collectAll(options = {}) {
         src.roots,
         (p, dirName) => parseClaudeLikeFile(src.id, p, path.basename(path.dirname(p))),
         (name) => name.endsWith('.jsonl'),
-        { excludeNames: src.excludeNames },
+        { excludeNames: src.excludeNames, mergeSubagents: true },
       )
       sources.push(meta)
     } catch (err) {
@@ -1154,6 +1321,17 @@ async function collectAll(options = {}) {
 
   if (cache) cache.save()
 
+  // 旧缓存里的会话可能没有 artifacts 字段
+  for (const s of sessions) {
+    if (!Array.isArray(s.artifacts)) s.artifacts = []
+  }
+
+  try {
+    attachArtifacts(sessions)
+  } catch {
+    // 成果提取失败不影响会话数据
+  }
+
   sessions.sort((a, b) => (a.start || 0) - (b.start || 0))
   return {
     generatedAt: Date.now(),
@@ -1163,4 +1341,4 @@ async function collectAll(options = {}) {
   }
 }
 
-module.exports = { collectAll, TOOLS }
+module.exports = { collectAll, TOOLS, parseClaudeLikeFile }

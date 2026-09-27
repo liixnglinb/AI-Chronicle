@@ -9,13 +9,14 @@ import {
   PanelLeftOpen,
   Search,
   Settings2,
-  Sparkles,
+  ShieldCheck,
   Sun,
   X,
 } from 'lucide-react'
 import { navItems } from '../data/nav'
 import { classNames } from '../lib/utils'
 import { useChronicle } from '../lib/store'
+import { formatClock } from '../lib/format'
 import type { ToastMessage, ViewId } from '../types'
 
 interface AppShellProps {
@@ -59,7 +60,7 @@ export function AppShell({
             aria-label="返回今天"
           >
             <span className="brand-mark">
-              <Sparkles size={17} strokeWidth={2.2} />
+              <img src="favicon.svg" alt="" width={22} height={22} />
             </span>
             <span className="brand-copy">
               <strong>AI 轨迹</strong>
@@ -120,7 +121,7 @@ export function AppShell({
         <div className="sidebar-bottom">
           <button className="privacy-card" type="button" onClick={() => onNavigate('settings')}>
             <span className="privacy-icon">
-              <Sparkles size={18} />
+              <ShieldCheck size={18} />
             </span>
             <span className="privacy-copy">
               <strong>数据留在本机</strong>
@@ -162,8 +163,19 @@ export function AppShell({
               <Menu size={19} />
             </button>
             <div className="page-identity">
-              <span className="page-kicker">{activeItem.description}</span>
+              <span
+                className="page-identity-icon"
+                style={{ color: 'var(--primary)' }}
+                aria-hidden
+              >
+                <activeItem.icon size={16} strokeWidth={2} />
+              </span>
               <strong>{activeItem.label}</strong>
+              {data && activeView === 'today' && (
+                <small className="page-identity-meta">
+                  采集于 {formatClock(data.generatedAt)}
+                </small>
+              )}
             </div>
           </div>
 

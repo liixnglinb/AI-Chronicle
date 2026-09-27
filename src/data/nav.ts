@@ -38,7 +38,7 @@ export const navItems: NavItem[] = [
   {
     id: 'library',
     label: '成果库',
-    description: '产出文件（规划中）',
+    description: '会话产出的真实文件',
     icon: LibraryBig,
   },
   {

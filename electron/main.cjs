@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, shell } = require('electron')
+const { app, BrowserWindow, Menu, dialog, ipcMain, shell } = require('electron')
 const fs = require('node:fs')
 const path = require('node:path')
 const os = require('node:os')
@@ -339,8 +339,106 @@ if (!singleInstance) {
     }
   })
 
+  // 截图自检模式：CHRONICLE_SHOT=<输出目录> 逐页渲染截图后退出（复核用）
+  if (process.env.CHRONICLE_SHOT && !isSmokeTest) {
+    const views = (process.env.CHRONICLE_VIEWS || 'today,timeline,history,projects,library,insights,sources,settings')
+      .split(',')
+      .map((v) => v.trim())
+      .filter(Boolean)
+    const themes = ['dark', 'light']
+    app.whenReady().then(async () => {
+      try {
+        await runIngest()
+        fs.mkdirSync(process.env.CHRONICLE_SHOT, { recursive: true })
+        const win = new BrowserWindow({
+          width: 1440,
+          height: 920,
+          show: true,
+          paintWhenInitiallyHidden: true,
+          backgroundColor: '#131315',
+          webPreferences: {
+            preload: path.join(__dirname, 'preload.cjs'),
+            contextIsolation: true,
+            nodeIntegration: false,
+            sandbox: true,
+          },
+        })
+        const baseUrl = require('node:url').pathToFileURL(
+          path.join(__dirname, '..', 'dist', 'index.html'),
+        ).href
+        for (const theme of themes) {
+          for (const view of views) {
+            await win.loadURL(`${baseUrl}?view=${view}&theme=${theme}`)
+            // 等待真实内容渲染完成（懒加载 chunk + 采集数据都就位）
+            await win.webContents
+              .executeJavaScript(
+                `new Promise((resolve) => {
+                  const start = Date.now()
+                  const timer = setInterval(() => {
+                    const ready = document.querySelector(
+                      '.kpi-strip,.session-list,.empty-state,.insights-grid-real,' +
+                      '.source-card-list,.project-list,.history-day-list,' +
+                      '.settings-block,.hour-grid,.artifact-list',
+                    )
+                    if (ready || Date.now() - start > 20000) {
+                      clearInterval(timer)
+                      resolve(true)
+                    }
+                  }, 200)
+                })`,
+              )
+              .catch(() => {})
+            await new Promise((resolve) => setTimeout(resolve, 400))
+            const diag = await win.webContents
+              .executeJavaScript(
+                `JSON.stringify({
+                  theme: document.documentElement.dataset.theme,
+                  active: (() => {
+                    const el = document.querySelector('.nav-item-active')
+                    if (!el) return 'none'
+                    const cs = getComputedStyle(el)
+                    return JSON.stringify({
+                      bg: cs.backgroundColor,
+                      varOnEl: cs.getPropertyValue('--surface-raised').trim(),
+                      cls: el.className,
+                    })
+                  })(),
+                })`,
+              )
+              .catch(() => '"diag-fail"')
+            console.log(`SHOT ${theme}/${view} ${diag}`)
+            let image = null
+            for (let attempt = 0; attempt < 4 && !image; attempt++) {
+              try {
+                image = await win.webContents.capturePage()
+              } catch (err) {
+                if (attempt === 3) throw err
+                await new Promise((resolve) => setTimeout(resolve, 700))
+              }
+            }
+            fs.writeFileSync(
+              path.join(process.env.CHRONICLE_SHOT, `${view}-${theme}.png`),
+              image.toPNG(),
+            )
+          }
+        }
+        win.destroy()
+        console.log('CHRONICLE_SHOTS_DONE')
+        app.exit(0)
+      } catch (err) {
+        console.error('CHRONICLE_SHOTS_FAIL', err)
+        app.exit(1)
+      }
+    })
+    return
+  }
+
   app.whenReady().then(() => {
     app.setAppUserModelId('com.aichronicle.desktop')
+    // 安装版隐藏默认菜单栏（File/Edit/View…），外观对齐现代桌面应用；开发模式保留菜单便于调试
+    if (app.isPackaged) {
+      Menu.setApplicationMenu(null)
+    }
     createWindow()
     if (!isSmokeTest) {
       configureUpdater()
