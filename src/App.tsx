@@ -2,9 +2,10 @@ import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { AppShell } from './components/AppShell'
 import { CommandPalette } from './components/CommandPalette'
 import { ToastStack } from './components/ToastStack'
+import { UpdateBadge } from './components/UpdateBadge'
 import { ChronicleProvider } from './lib/store'
 import { navItems } from './data/nav'
-import type { ToastMessage, UpdateStatus, ViewId } from './types'
+import type { ToastMessage, ViewId } from './types'
 import './App.css'
 
 const TodayPage = lazy(() =>
@@ -98,26 +99,25 @@ function App() {
   useEffect(() => {
     if (!window.desktopAPI) return undefined
     return window.desktopAPI.onUpdateStatus((status) => {
-      const update = status as UpdateStatus
-      if (update.state === 'available') {
+      if (status.state === 'available') {
         pushToast({
           tone: 'info',
-          title: `发现 AI 轨迹 v${update.version}`,
+          title: `发现 AI 轨迹 v${status.version}`,
           message: '更新正在后台下载，完成后可在设置中安装。',
         })
       }
-      if (update.state === 'downloaded') {
+      if (status.state === 'downloaded') {
         pushToast({
           tone: 'success',
           title: '更新已下载',
-          message: `v${update.version} 已准备完成，可在设置中安装并重启。`,
+          message: `v${status.version} 已准备完成，点击右下角更新框即可安装。`,
         })
       }
-      if (update.state === 'error') {
+      if (status.state === 'error') {
         pushToast({
           tone: 'warning',
           title: '更新检查失败',
-          message: update.message ?? '请检查网络后重试。',
+          message: status.message ?? '请检查网络后重试。',
         })
       }
     })
@@ -200,6 +200,7 @@ function App() {
         toasts={toasts}
         onDismiss={(id) => setToasts((current) => current.filter((toast) => toast.id !== id))}
       />
+      <UpdateBadge onNavigate={navigate} />
     </ChronicleProvider>
   )
 }

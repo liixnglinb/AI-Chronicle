@@ -5604,3 +5604,129 @@ button {
     gap: 6px;
   }
 }
+
+/* ============================================================
+   常驻更新小框（合规）：固定右下角、圆形进度环、悬停显示更新内容
+   ============================================================ */
+.update-badge-wrap {
+  position: fixed;
+  z-index: 95;
+  right: 20px;
+  bottom: 20px;
+}
+
+.update-badge {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 15px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 13px;
+  background: var(--surface-raised);
+  color: var(--text);
+  cursor: pointer;
+  box-shadow: var(--shadow-md);
+  text-align: left;
+  animation: updateIn 220ms ease-out both;
+  transition: border-color 140ms ease, background 140ms ease, transform 120ms ease;
+}
+
+.update-badge:hover {
+  border-color: color-mix(in srgb, var(--primary) 45%, var(--border-subtle));
+  transform: translateY(-1px);
+}
+
+.update-badge:active {
+  transform: translateY(0);
+}
+
+.update-badge-ready {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #ffffff;
+}
+
+.update-badge-ready:hover {
+  background: var(--primary-strong);
+}
+
+.update-badge-busy {
+  opacity: 0.75;
+  cursor: default;
+}
+
+.update-badge-text {
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.update-ring {
+  width: 26px;
+  height: 26px;
+  transform: rotate(-90deg);
+  flex-shrink: 0;
+}
+
+.update-ring-track {
+  fill: none;
+  stroke: var(--surface-strong);
+  stroke-width: 3;
+}
+
+.update-ring-bar {
+  fill: none;
+  stroke: var(--primary);
+  stroke-width: 3;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 400ms ease;
+}
+
+.update-pop {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 10px);
+  width: min(360px, 84vw);
+  max-height: 300px;
+  overflow: auto;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-md);
+  animation: updateIn 160ms ease-out both;
+}
+
+.update-pop strong {
+  display: block;
+  font-size: 13px;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+.update-pop-body p {
+  margin: 0 0 6px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-soft);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.update-pop small {
+  display: block;
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+@keyframes updateIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

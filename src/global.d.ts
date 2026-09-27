@@ -87,6 +87,8 @@ declare global {
           version?: string
           percent?: number
           message?: string
+          notes?: string
+          source?: string
         }) => void,
       ) => () => void
     }

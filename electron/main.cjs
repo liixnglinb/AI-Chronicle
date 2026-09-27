@@ -87,10 +87,62 @@ const FEED_CANDIDATES = [
   { id: 'gh-proxy', label: 'gh-proxy 镜像', base: `https://gh-proxy.com/${RELEASE_BASE}` },
   { id: 'ghfast', label: 'ghfast.top 镜像', base: `https://ghfast.top/${RELEASE_BASE}` },
 ]
-// SSRF 防护：更新源只允许 https + 白名单 host
-const FEED_ALLOWED_HOSTS = new Set(['github.com', 'gh-proxy.com', 'ghfast.top'])
+// SSRF 防护：更新相关请求只允许 https + host 白名单，
+// 且 DNS 解析结果不得为环回/私有/保留地址（防重绑定到内网）
+const FEED_ALLOWED_HOSTS = new Set(['github.com', 'gh-proxy.com', 'ghfast.top', 'api.github.com'])
 
-function probeFeedUrl(rawUrl, timeoutMs) {
+function assertPublicHttpsHost(rawUrl) {
+  const parsed = new URL(rawUrl)
+  if (parsed.protocol !== 'https:') {
+    throw new Error('仅允许 https')
+  }
+  if (!FEED_ALLOWED_HOSTS.has(parsed.hostname)) {
+    throw new Error('host 不在白名单')
+  }
+  return parsed
+}
+
+function isForbiddenAddress(address) {
+  const v = String(address).toLowerCase()
+  if (v.includes(':')) {
+    return (
+      v === '::1' || v === '::' || v.startsWith('fe80') ||
+      v.startsWith('fc') || v.startsWith('fd') || v.startsWith('::ffff:127.')
+    )
+  }
+  const parts = v.split('.').map(Number)
+  if (parts.length !== 4 || parts.some((n) => Number.isNaN(n))) return true
+  const [a, b] = parts
+  return (
+    a === 0 || a === 10 || a === 127 ||
+    (a === 100 && b >= 64 && b <= 127) ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    a >= 224
+  )
+}
+
+async function guardPublicHttps(rawUrl) {
+  const parsed = assertPublicHttpsHost(rawUrl)
+  const dns = require('node:dns').promises
+  const addresses = await dns.lookup(parsed.hostname, { all: true })
+  for (const { address } of addresses) {
+    if (isForbiddenAddress(address)) {
+      throw new Error(`解析到保留地址 ${address}，已拒绝`)
+    }
+  }
+  return parsed
+}
+
+async function probeFeedUrl(rawUrl, timeoutMs) {
+  const started = Date.now()
+  let parsed
+  try {
+    parsed = await guardPublicHttps(rawUrl)
+  } catch (err) {
+    return { ok: false, ms: 0, reason: String(err && err.message).slice(0, 60) }
+  }
   return new Promise((resolve) => {
     const started = Date.now()
     let settled = false
@@ -100,11 +152,6 @@ function probeFeedUrl(rawUrl, timeoutMs) {
       resolve(result)
     }
     try {
-      const parsed = new URL(rawUrl)
-      if (parsed.protocol !== 'https:' || !FEED_ALLOWED_HOSTS.has(parsed.hostname)) {
-        done({ ok: false, ms: 0, reason: 'host 不在白名单' })
-        return
-      }
       const request = net.request({ method: 'GET', url: parsed.href })
       const timer = setTimeout(() => {
         done({ ok: false, ms: Date.now() - started, reason: '超时' })
@@ -143,6 +190,70 @@ async function pickUpdateFeed() {
 }
 
 let currentFeedLabel = 'GitHub 直连'
+// 面向界面的更新状态（版本 / 进度 / 更新内容），随事件广播
+let updateState = { state: 'idle', version: '', notes: '', percent: 0 }
+
+function fetchReleaseNotes() {
+  // 更新内容从 GitHub API 取 Release 说明（api.github.com 在白名单内且国内可达）
+  const url = 'https://api.github.com/repos/liixnglinb/AI-Chronicle/releases/latest'
+  return guardPublicHttps(url)
+    .then((parsed) => new Promise((resolve) => {
+      const started = Date.now()
+      const request = net.request({ method: 'GET', url: parsed.href })
+      request.setHeader('Accept', 'application/vnd.github+json')
+      const timer = setTimeout(() => {
+        try { request.abort() } catch { /* 忽略 */ }
+        resolve('')
+      }, 6000)
+      let body = ''
+      request.on('response', (response) => {
+        response.setEncoding('utf8')
+        response.on('data', (chunk) => {
+          body += chunk
+          if (body.length > 512 * 1024) {
+            clearTimeout(timer)
+            try { request.abort() } catch { /* 忽略 */ }
+            resolve('')
+          }
+        })
+        response.on('end', () => {
+          clearTimeout(timer)
+          try {
+            const info = JSON.parse(body)
+            resolve(String(info.body || ''))
+          } catch {
+            resolve('')
+          }
+        })
+      })
+      request.on('error', () => {
+        clearTimeout(timer)
+        resolve('')
+      })
+      request.end()
+      void started
+    }))
+    .catch(() => '')
+}
+
+function markdownToPlain(md) {
+  return String(md || '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/`{1,3}/g, '')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/^[-*]{3,}\s*$/gm, '')
+    .replace(/^\s*[-*+]\s+/gm, '· ')
+    .replace(/\r/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+    .slice(0, 1200)
+}
+
+function broadcastUpdate() {
+  sendUpdateStatus({ ...updateState })
+}
 
 async function runUpdateCheck() {
   if (!app.isPackaged) {
@@ -155,7 +266,10 @@ async function runUpdateCheck() {
   const { probed, winner } = await pickUpdateFeed()
   if (!winner) {
     const detail = probed.map((p) => `${p.label} ${p.reason || p.status}`).join('；')
-    return { ok: false, state: 'error', message: `所有更新源均不可达：${detail}`, probes: probed }
+    const message = `所有更新源均不可达：${detail}`
+    updateState = { ...updateState, state: 'error' }
+    broadcastUpdate()
+    return { ok: false, state: 'error', message, probes: probed }
   }
   currentFeedLabel = winner.label
   // 统一走 generic feed（直连与镜像同一套 latest.yml 语义），下载与校验同源
@@ -164,24 +278,33 @@ async function runUpdateCheck() {
     const result = await autoUpdater.checkForUpdates()
     const version = result?.updateInfo?.version
     const available = version && version !== app.getVersion()
-    sendUpdateStatus({
-      state: available ? 'available' : 'not-available',
-      version,
-      message: available
-        ? `发现新版本 v${version}（更新源：${winner.label}，探测 ${winner.ms}ms），正在后台下载。`
-        : '当前已经是最新版本。',
-    })
+    if (available) {
+      const notes = markdownToPlain(await fetchReleaseNotes())
+      updateState = {
+        state: 'available',
+        version: String(version),
+        notes,
+        percent: 0,
+        source: winner.label,
+      }
+    } else {
+      updateState = { state: 'not-available', version: '', notes: '', percent: 0 }
+    }
+    broadcastUpdate()
     return {
       ok: true,
       state: available ? 'available' : 'not-available',
       version,
       source: `${winner.label}（${winner.ms}ms）`,
       probes: probed.map((p) => ({ id: p.id, label: p.label, ok: p.ok, ms: p.ms })),
+      notes: updateState.notes,
       message: available
         ? `发现新版本 v${version}，正从「${winner.label}」下载。`
         : '当前已经是最新版本。',
     }
   } catch (err) {
+    updateState = { ...updateState, state: 'error' }
+    broadcastUpdate()
     return {
       ok: false,
       state: 'error',
@@ -195,50 +318,55 @@ async function runUpdateCheck() {
 function configureUpdater() {
   if (!app.isPackaged) return
   autoUpdater.autoDownload = true
-  autoUpdater.autoInstallOnAppQuit = true
+  // 更新必须经用户在界面确认后才安装（合规要求），退出时不静默安装
+  autoUpdater.autoInstallOnAppQuit = false
 
-  autoUpdater.on('checking-for-update', () =>
-    sendUpdateStatus({ state: 'checking', message: `正在检查 GitHub Releases（更新源：${currentFeedLabel}）。` }),
-  )
-  autoUpdater.on('update-available', (info) =>
-    sendUpdateStatus({
+  autoUpdater.on('checking-for-update', () => {
+    updateState = { ...updateState, state: 'checking' }
+    broadcastUpdate()
+  })
+  autoUpdater.on('update-available', (info) => {
+    updateState = {
+      ...updateState,
       state: 'available',
-      version: info.version,
-      message: `发现新版本 v${info.version}，正在下载。`,
-    }),
-  )
-  autoUpdater.on('update-not-available', (info) =>
-    sendUpdateStatus({
-      state: 'not-available',
-      version: info.version,
-      message: '当前已经是最新版本。',
-    }),
-  )
-  autoUpdater.on('download-progress', (progress) =>
-    sendUpdateStatus({
+      version: String(info.version),
+      percent: 0,
+    }
+    broadcastUpdate()
+  })
+  autoUpdater.on('update-not-available', () => {
+    updateState = { state: 'not-available', version: '', notes: '', percent: 0 }
+    broadcastUpdate()
+  })
+  autoUpdater.on('download-progress', (progress) => {
+    updateState = {
+      ...updateState,
       state: 'downloading',
       percent: Math.round(progress.percent),
-      message: `正在下载更新 ${Math.round(progress.percent)}%`,
-    }),
-  )
-  autoUpdater.on('update-downloaded', (info) =>
-    sendUpdateStatus({
+    }
+    broadcastUpdate()
+  })
+  autoUpdater.on('update-downloaded', (info) => {
+    updateState = {
+      ...updateState,
       state: 'downloaded',
-      version: info.version,
-      message: `新版本 v${info.version} 已下载，可以安装并重启。`,
-    }),
-  )
-  autoUpdater.on('error', (error) =>
-    sendUpdateStatus({
-      state: 'error',
-      message: error?.message || '检查更新失败。',
-    }),
-  )
+      version: String(info.version),
+      percent: 100,
+    }
+    broadcastUpdate()
+  })
+  autoUpdater.on('error', (error) => {
+    updateState = { ...updateState, state: 'error' }
+    broadcastUpdate()
+    void error
+  })
 
   // 启动 7 秒后自动检查（含测速选优）
   setTimeout(() => {
     runUpdateCheck().catch((error) => {
-      sendUpdateStatus({ state: 'error', message: error.message })
+      updateState = { ...updateState, state: 'error' }
+      broadcastUpdate()
+      void error
     })
   }, 7000)
 }
@@ -413,9 +541,30 @@ ipcMain.handle('desktop:check-for-updates', async () => {
   }
 })
 
-ipcMain.handle('desktop:install-update', () => {
+ipcMain.handle('desktop:install-update', async () => {
   if (!app.isPackaged) {
     return { ok: false, message: '只有安装后的正式版本可以安装更新。' }
+  }
+  if (updateState.state !== 'downloaded') {
+    return { ok: false, message: '更新尚未下载完成。' }
+  }
+  // 合规要求：先向用户确认「是否现在更新并重启」，确认后才执行安装
+  const parent = BrowserWindow.getAllWindows()[0]
+  const options = {
+    type: 'question',
+    title: '安装更新',
+    message: '是否现在更新并重启？',
+    detail: `新版本 v${updateState.version || ''} 已下载完成。确认后应用将退出、自动完成安装并重新启动。`,
+    buttons: ['立即更新并重启', '稍后'],
+    defaultId: 0,
+    cancelId: 1,
+    noLink: true,
+  }
+  const { response } = parent
+    ? await dialog.showMessageBox(parent, options)
+    : await dialog.showMessageBox(options)
+  if (response !== 0) {
+    return { ok: false, canceled: true, message: '已取消。更新包已就绪，随时可在此点击安装。' }
   }
   try {
     autoUpdater.quitAndInstall(false, true)

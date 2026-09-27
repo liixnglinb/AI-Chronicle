@@ -15,6 +15,14 @@ interface ChronicleContextValue {
   error: string | null
   isDesktop: boolean
   refresh: (force?: boolean) => Promise<void>
+  update: {
+    state: string
+    version?: string
+    percent?: number
+    notes?: string
+    message?: string
+    source?: string
+  } | null
 }
 
 const ChronicleContext = createContext<ChronicleContextValue | null>(null)
@@ -23,6 +31,7 @@ export function ChronicleProvider({ children }: { children: ReactNode }) {
   const [data, setData] = useState<ChronicleData | null>(null)
   const [loading, setLoading] = useState(() => !!window.desktopAPI)
   const [error, setError] = useState<string | null>(null)
+  const [update, setUpdate] = useState<ChronicleContextValue['update']>(null)
   const isDesktop = !!window.desktopAPI
 
   const load = useCallback(async (force = false) => {
@@ -62,9 +71,24 @@ export function ChronicleProvider({ children }: { children: ReactNode }) {
     }
   }, [isDesktop, load])
 
+  // 更新状态：主进程事件 → 上下文（常驻更新框 / 设置页共用）
+  useEffect(() => {
+    if (!window.desktopAPI) return undefined
+    return window.desktopAPI.onUpdateStatus((status) => {
+      setUpdate({
+        state: status.state,
+        version: status.version,
+        percent: status.percent,
+        notes: status.notes,
+        message: status.message,
+        source: status.source,
+      })
+    })
+  }, [])
+
   const value = useMemo<ChronicleContextValue>(
-    () => ({ data, loading, error, isDesktop, refresh: load }),
-    [data, loading, error, isDesktop, load],
+    () => ({ data, loading, error, isDesktop, refresh: load, update }),
+    [data, loading, error, isDesktop, load, update],
   )
 
   return <ChronicleContext.Provider value={value}>{children}</ChronicleContext.Provider>
