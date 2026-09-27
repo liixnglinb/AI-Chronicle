@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import {
-  ChevronDown,
   Command,
   Info,
   Menu,
@@ -127,7 +126,6 @@ export function AppShell({
               <strong>数据留在本机</strong>
               <small>全部在本机解析，不上传</small>
             </span>
-            <ChevronDown size={15} />
           </button>
           <div className="capture-health">
             <span className={classNames('pulse-dot', !loading && 'pulse-dot-live')} />
@@ -214,7 +212,6 @@ export function AppShell({
               onClick={() => setProfileOpen((open) => !open)}
             >
               <Info size={16} />
-              <ChevronDown size={13} />
             </button>
 
             {profileOpen && (

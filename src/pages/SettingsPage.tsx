@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Info, Moon, RefreshCw, Sun } from 'lucide-react'
+import { Download, Info, Moon, RefreshCw, Sun } from 'lucide-react'
 import { useChronicle } from '../lib/store'
 import { saveText } from '../lib/desktop'
 import { dayKeyOf } from '../lib/format'
@@ -11,6 +11,15 @@ interface SettingsPageProps {
   onToast: (toast: Omit<ToastMessage, 'id'>) => void
 }
 
+interface UpdateCheckResult {
+  ok: boolean
+  state: string
+  version?: string
+  message?: string
+  source?: string
+  probes?: Array<{ id: string; label: string; ok: boolean; ms: number }>
+}
+
 export function SettingsPage({ theme, onThemeToggle, onToast }: SettingsPageProps) {
   const { data, refresh, isDesktop } = useChronicle()
   const [runtime, setRuntime] = useState<{
@@ -20,12 +29,30 @@ export function SettingsPage({ theme, onThemeToggle, onToast }: SettingsPageProp
     dataPath: string
     packaged: boolean
   } | null>(null)
+  const [update, setUpdate] = useState<UpdateCheckResult | null>(null)
+  const [checking, setChecking] = useState(false)
 
   useEffect(() => {
     if (window.desktopAPI) {
       void window.desktopAPI.getRuntimeInfo().then(setRuntime)
     }
   }, [])
+
+  async function checkUpdate() {
+    if (!window.desktopAPI) return
+    setChecking(true)
+    try {
+      const result = await window.desktopAPI.checkForUpdates()
+      setUpdate(result)
+      onToast({
+        tone: result.ok && result.state === 'available' ? 'info' : result.ok ? 'success' : 'warning',
+        title: result.state === 'available' ? `发现新版本 v${result.version}` : '更新检查完成',
+        message: result.message ?? '',
+      })
+    } finally {
+      setChecking(false)
+    }
+  }
 
   async function exportAllSessions() {
     if (!data) return
@@ -64,6 +91,61 @@ export function SettingsPage({ theme, onThemeToggle, onToast }: SettingsPageProp
           </span>
           <span className="setting-value">{theme === 'light' ? '浅色' : '深色'}</span>
         </button>
+      </section>
+
+      <section className="settings-block">
+        <h3>更新</h3>
+        <button
+          className="settings-row"
+          type="button"
+          onClick={() => void checkUpdate()}
+          disabled={checking}
+        >
+          <span className="setting-icon">
+            <RefreshCw size={17} className={checking ? 'spin' : undefined} />
+          </span>
+          <span className="setting-copy">
+            <strong>检查更新</strong>
+            <small>自动测速 GitHub 直连与镜像，按最快的通道下载</small>
+          </span>
+          <span className="setting-value">
+            {update?.source ?? (runtime?.packaged ? '点按测速' : '开发模式')}
+          </span>
+        </button>
+        {update && (
+          <div className="settings-row static">
+            <span className="setting-icon">
+              <Download size={17} />
+            </span>
+            <span className="setting-copy">
+              <strong>{update.state === 'available' ? `v${update.version} 可更新` : '已是最新'}</strong>
+              <small>{update.message}</small>
+              {update.probes && (
+                <small>
+                  测速：
+                  {update.probes
+                    .map((p) => `${p.label} ${p.ok ? `${p.ms}ms` : '不通'}`)
+                    .join(' · ')}
+                </small>
+              )}
+            </span>
+          </div>
+        )}
+        {update?.state === 'downloaded' && (
+          <button
+            className="settings-row"
+            type="button"
+            onClick={() => void window.desktopAPI?.installUpdate()}
+          >
+            <span className="setting-icon">
+              <Download size={17} />
+            </span>
+            <span className="setting-copy">
+              <strong>安装并重启</strong>
+              <small>新版本已下载完成，安装后自动重启</small>
+            </span>
+          </button>
+        )}
       </section>
 
       <section className="settings-block">

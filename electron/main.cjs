@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, dialog, ipcMain, shell } = require('electron')
+const { app, BrowserWindow, Menu, dialog, ipcMain, net, shell } = require('electron')
 const fs = require('node:fs')
 const path = require('node:path')
 const os = require('node:os')
@@ -78,13 +78,127 @@ function sendUpdateStatus(status) {
   }
 }
 
+// ---------------- 更新源自动测速选优 ----------------
+// GitHub 直连经常被墙或很慢；并发探测各通道取 latest.yml 的耗时，
+// 选最快可达者作为 electron-updater 的 generic feed（latest.yml/exe/blockmap 同源）。
+const RELEASE_BASE = 'https://github.com/liixnglinb/AI-Chronicle/releases/latest/download/'
+const FEED_CANDIDATES = [
+  { id: 'github', label: 'GitHub 直连', base: RELEASE_BASE },
+  { id: 'gh-proxy', label: 'gh-proxy 镜像', base: `https://gh-proxy.com/${RELEASE_BASE}` },
+  { id: 'ghfast', label: 'ghfast.top 镜像', base: `https://ghfast.top/${RELEASE_BASE}` },
+]
+// SSRF 防护：更新源只允许 https + 白名单 host
+const FEED_ALLOWED_HOSTS = new Set(['github.com', 'gh-proxy.com', 'ghfast.top'])
+
+function probeFeedUrl(rawUrl, timeoutMs) {
+  return new Promise((resolve) => {
+    const started = Date.now()
+    let settled = false
+    const done = (result) => {
+      if (settled) return
+      settled = true
+      resolve(result)
+    }
+    try {
+      const parsed = new URL(rawUrl)
+      if (parsed.protocol !== 'https:' || !FEED_ALLOWED_HOSTS.has(parsed.hostname)) {
+        done({ ok: false, ms: 0, reason: 'host 不在白名单' })
+        return
+      }
+      const request = net.request({ method: 'GET', url: parsed.href })
+      const timer = setTimeout(() => {
+        done({ ok: false, ms: Date.now() - started, reason: '超时' })
+        try {
+          request.abort()
+        } catch {
+          // 忽略
+        }
+      }, timeoutMs)
+      request.on('response', (response) => {
+        clearTimeout(timer)
+        const ok = response.statusCode >= 200 && response.statusCode < 400
+        response.resume()
+        done({ ok, ms: Date.now() - started, status: response.statusCode })
+      })
+      request.on('error', (err) => {
+        clearTimeout(timer)
+        done({ ok: false, ms: Date.now() - started, reason: String(err && err.message).slice(0, 60) })
+      })
+      request.end()
+    } catch (err) {
+      done({ ok: false, ms: 0, reason: String(err).slice(0, 60) })
+    }
+  })
+}
+
+async function pickUpdateFeed() {
+  const probed = await Promise.all(
+    FEED_CANDIDATES.map(async (candidate) => {
+      const result = await probeFeedUrl(`${candidate.base}latest.yml`, 6000)
+      return { ...candidate, ...result }
+    }),
+  )
+  const reachable = probed.filter((r) => r.ok).sort((a, b) => a.ms - b.ms)
+  return { probed, winner: reachable[0] || null }
+}
+
+let currentFeedLabel = 'GitHub 直连'
+
+async function runUpdateCheck() {
+  if (!app.isPackaged) {
+    return {
+      ok: false,
+      state: 'unavailable',
+      message: '开发模式不检查更新，安装版会自动连接 GitHub Releases。',
+    }
+  }
+  const { probed, winner } = await pickUpdateFeed()
+  if (!winner) {
+    const detail = probed.map((p) => `${p.label} ${p.reason || p.status}`).join('；')
+    return { ok: false, state: 'error', message: `所有更新源均不可达：${detail}`, probes: probed }
+  }
+  currentFeedLabel = winner.label
+  // 统一走 generic feed（直连与镜像同一套 latest.yml 语义），下载与校验同源
+  autoUpdater.setFeedURL({ provider: 'generic', url: winner.base })
+  try {
+    const result = await autoUpdater.checkForUpdates()
+    const version = result?.updateInfo?.version
+    const available = version && version !== app.getVersion()
+    sendUpdateStatus({
+      state: available ? 'available' : 'not-available',
+      version,
+      message: available
+        ? `发现新版本 v${version}（更新源：${winner.label}，探测 ${winner.ms}ms），正在后台下载。`
+        : '当前已经是最新版本。',
+    })
+    return {
+      ok: true,
+      state: available ? 'available' : 'not-available',
+      version,
+      source: `${winner.label}（${winner.ms}ms）`,
+      probes: probed.map((p) => ({ id: p.id, label: p.label, ok: p.ok, ms: p.ms })),
+      message: available
+        ? `发现新版本 v${version}，正从「${winner.label}」下载。`
+        : '当前已经是最新版本。',
+    }
+  } catch (err) {
+    return {
+      ok: false,
+      state: 'error',
+      source: winner.label,
+      probes: probed.map((p) => ({ id: p.id, label: p.label, ok: p.ok, ms: p.ms })),
+      message: `检查更新失败（更新源：${winner.label}）：${String(err && err.message).slice(0, 120)}`,
+    }
+  }
+}
+
 function configureUpdater() {
   if (!app.isPackaged) return
   autoUpdater.autoDownload = true
   autoUpdater.autoInstallOnAppQuit = true
 
   autoUpdater.on('checking-for-update', () =>
-    sendUpdateStatus({ state: 'checking', message: '正在检查 GitHub Releases。' }),
+    sendUpdateStatus({ state: 'checking', message: `正在检查 GitHub Releases（更新源：${currentFeedLabel}）。` }),
   )
   autoUpdater.on('update-available', (info) =>
     sendUpdateStatus({
@@ -121,8 +235,9 @@ function configureUpdater() {
     }),
   )
 
+  // 启动 7 秒后自动检查（含测速选优）
   setTimeout(() => {
-    autoUpdater.checkForUpdates().catch((error) => {
+    runUpdateCheck().catch((error) => {
       sendUpdateStatus({ state: 'error', message: error.message })
     })
   }, 7000)
@@ -287,30 +402,13 @@ function runIngest(force = false) {
 ipcMain.handle('desktop:ingest', (_event, force) => runIngest(!!force))
 
 ipcMain.handle('desktop:check-for-updates', async () => {
-  if (!app.isPackaged) {
-    return {
-      ok: false,
-      state: 'unavailable',
-      message: '开发模式不检查更新，安装版会自动连接 GitHub Releases。',
-    }
-  }
   try {
-    const result = await autoUpdater.checkForUpdates()
-    const version = result?.updateInfo?.version
-    const available = version && version !== app.getVersion()
-    return {
-      ok: true,
-      state: available ? 'available' : 'not-available',
-      version,
-      message: available
-        ? `发现新版本 v${version}，正在后台下载。`
-        : '当前已经是最新版本。',
-    }
+    return await runUpdateCheck()
   } catch (error) {
     return {
       ok: false,
       state: 'error',
-      message: error?.message || '无法连接 GitHub Releases。',
+      message: error?.message || '无法连接更新源。',
     }
   }
 })
@@ -327,8 +425,15 @@ ipcMain.handle('desktop:install-update', () => {
   }
 })
 
+// 截图自检模式使用隔离的临时 userData：不与正式安装/开发实例抢锁，
+// 也避免 GPU 缓存目录被残留句柄锁住导致启动失败
+const isShotMode = !!process.env.CHRONICLE_SHOT && !isSmokeTest
+if (isShotMode) {
+  app.setPath('userData', path.join(os.tmpdir(), 'chronicle-shot-profile'))
+}
+
 const singleInstance = app.requestSingleInstanceLock()
-if (!singleInstance) {
+if (!singleInstance && !isShotMode) {
   app.quit()
 } else {
   app.on('second-instance', () => {
@@ -340,7 +445,7 @@ if (!singleInstance) {
   })
 
   // 截图自检模式：CHRONICLE_SHOT=<输出目录> 逐页渲染截图后退出（复核用）
-  if (process.env.CHRONICLE_SHOT && !isSmokeTest) {
+  if (isShotMode) {
     const views = (process.env.CHRONICLE_VIEWS || 'today,timeline,history,projects,library,insights,sources,settings')
       .split(',')
       .map((v) => v.trim())

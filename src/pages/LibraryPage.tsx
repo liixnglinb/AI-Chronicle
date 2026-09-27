@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { ExternalLink, FileCode2, FileImage, FileText, FileVideo, File, Database } from 'lucide-react'
+import { FileCode2, FileImage, FileText, FileVideo, File, Database } from 'lucide-react'
 import { useChronicle } from '../lib/store'
 import { dayKeyOf, formatDayLabel, formatTimeRange } from '../lib/format'
 import { ToolDot } from '../components/ToolDot'
@@ -185,7 +185,6 @@ export function LibraryPage({ searchQuery }: LibraryPageProps) {
                     <span>{f.project}</span>
                     <span>{f.range}</span>
                     <span>{formatSize(f.size)}</span>
-                    <ExternalLink size={13} className="artifact-open-icon" />
                   </span>
                 </button>
               )

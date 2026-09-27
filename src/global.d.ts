@@ -77,6 +77,8 @@ declare global {
         state: string
         version?: string
         message?: string
+        source?: string
+        probes?: Array<{ id: string; label: string; ok: boolean; ms: number }>
       }>
       installUpdate: () => Promise<{ ok: boolean; message?: string }>
       onUpdateStatus: (

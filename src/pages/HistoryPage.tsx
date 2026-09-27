@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react'
-import { ChevronDown } from 'lucide-react'
 import { useChronicle } from '../lib/store'
 import { dayKeyOf, formatDayLabel, formatDuration, sessionDurationMinutes } from '../lib/format'
 import { SessionRow } from '../components/SessionRow'
@@ -97,7 +96,6 @@ export function HistoryPage() {
                     </span>
                   ))}
                 </div>
-                <ChevronDown size={16} className={open ? 'chev chev-up' : 'chev'} />
               </button>
               {open && (
                 <div className="history-day-sessions">

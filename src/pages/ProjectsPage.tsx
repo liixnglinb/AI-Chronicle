@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react'
-import { ChevronDown } from 'lucide-react'
 import { useChronicle } from '../lib/store'
 import { dayKeyOf, formatDayLabel, formatTimeRange } from '../lib/format'
 import { SessionRow } from '../components/SessionRow'
@@ -130,7 +129,6 @@ export function ProjectsPage({ searchQuery }: ProjectsPageProps) {
                     <ToolDot key={t.name} color={t.color} name={t.name} />
                   ))}
                 </div>
-                <ChevronDown size={16} className={open ? 'chev chev-up' : 'chev'} />
               </button>
               {open && (
                 <div className="project-sessions">
