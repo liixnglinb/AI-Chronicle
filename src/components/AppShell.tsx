@@ -230,7 +230,6 @@ export function AppShell({
             <div className="page-identity">
               <span
                 className="page-identity-icon"
-                style={{ color: 'var(--primary)' }}
                 aria-hidden
               >
                 <activeItem.icon size={16} strokeWidth={2} />
