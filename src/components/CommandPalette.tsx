@@ -46,13 +46,13 @@ export function CommandPalette({
       list.push({
         key: 'refresh',
         label: '重新采集数据',
-        hint: '重新扫描全部数据源',
+        hint: '重新扫描全部接入来源',
         run: () => {
           void refresh(true).then(() =>
             onAction({
               tone: 'success',
               title: '已重新采集',
-              message: '全部数据源已按最新文件重新解析。',
+            message: '全部接入来源已按最新文件重新解析。',
             }),
           )
         },
@@ -66,7 +66,8 @@ export function CommandPalette({
           (s) =>
             s.title.toLowerCase().includes(q) ||
             s.project.toLowerCase().includes(q) ||
-            s.toolName.toLowerCase().includes(q),
+            s.toolName.toLowerCase().includes(q) ||
+            (s.artifacts ?? []).some((artifact) => artifact.name.toLowerCase().includes(q)),
         )
         .sort((a, b) => (b.start || 0) - (a.start || 0))
         .slice(0, 6)
@@ -120,7 +121,7 @@ export function CommandPalette({
             autoFocus
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="搜索会话或执行命令…"
+            placeholder="搜索会话、项目、文件或执行命令…"
             aria-label="命令面板"
           />
           <button className="icon-button" type="button" onClick={onClose} aria-label="关闭">

@@ -10,6 +10,7 @@ import {
   Settings2,
   ShieldCheck,
   Sun,
+  RefreshCw,
   X,
 } from 'lucide-react'
 import { navItems } from '../data/nav'
@@ -44,47 +45,96 @@ export function AppShell({
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
-  const { data, loading } = useChronicle()
+  const [updateChecking, setUpdateChecking] = useState(false)
+  const { data, loading, update } = useChronicle()
   const activeItem = navItems.find((item) => item.id === activeView) ?? navItems[0]
   const connectedCount = data?.sources.filter((s) => s.status === 'connected').length ?? 0
 
+  const updateStatus =
+    update?.state === 'downloading'
+      ? `下载中 ${Math.round(update.percent ?? 0)}%`
+      : update?.state === 'downloaded'
+        ? '待安装'
+        : updateChecking
+          ? '检查中'
+          : '检查新版本'
+
+  async function runSidebarUpdate() {
+    if (!window.desktopAPI) {
+      onToast({
+        tone: 'warning',
+        title: '仅桌面版支持更新',
+        message: '请在安装版应用中检查软件更新。',
+      })
+      return
+    }
+
+    if (update?.state === 'downloaded') {
+      await window.desktopAPI.installUpdate()
+      return
+    }
+
+    setUpdateChecking(true)
+    try {
+      const result = await window.desktopAPI.checkForUpdates()
+      onToast({
+        tone: result.state === 'available' ? 'info' : result.ok ? 'success' : 'warning',
+        title: result.state === 'available' ? `发现新版本 v${result.version}` : '更新检查完成',
+        message: result.message ?? '',
+      })
+    } catch {
+      onToast({
+        tone: 'warning',
+        title: '更新检查失败',
+        message: '请稍后重试，或到设置页查看更新通道。',
+      })
+    } finally {
+      setUpdateChecking(false)
+    }
+  }
+
   return (
-    <div className={classNames('app-shell', collapsed && 'sidebar-collapsed')}>
-      <aside className={classNames('sidebar', mobileOpen && 'sidebar-mobile-open')}>
-        <div className="brand-row">
-          <button
-            className="brand"
-            type="button"
-            onClick={() => onNavigate('today')}
-            aria-label="返回今天"
-          >
-            <span className="brand-mark">
-              <img src="favicon.svg" alt="" width={22} height={22} />
-            </span>
-            <span className="brand-copy">
-              <strong>AI 轨迹</strong>
-              <small>LOCAL ACTIVITY OS</small>
-            </span>
-          </button>
-          <button
-            className="icon-button desktop-only"
-            type="button"
-            onClick={() => setCollapsed((value) => !value)}
-            title={collapsed ? '展开导航' : '收起导航'}
-            aria-label={collapsed ? '展开导航' : '收起导航'}
-          >
-            {collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
-          </button>
-          <button
-            className="icon-button mobile-only"
-            type="button"
-            onClick={() => setMobileOpen(false)}
-            title="关闭导航"
-            aria-label="关闭导航"
-          >
-            <X size={18} />
-          </button>
-        </div>
+    <>
+      <header className="titlebar-strip" aria-hidden />
+
+      <div className={classNames('app-shell', collapsed && 'sidebar-collapsed')}>
+        <aside className={classNames('sidebar', mobileOpen && 'sidebar-mobile-open')}>
+          <div className="brand-row">
+            <button
+              className="brand"
+              type="button"
+              onClick={() => {
+                setMobileOpen(false)
+                setCollapsed((value) => !value)
+              }}
+              title={collapsed ? '展开导航' : 'AI 轨迹'}
+              aria-label={collapsed ? '展开导航' : 'AI 轨迹'}
+            >
+              <img src="favicon.svg" alt="" width={20} height={20} />
+              <span className="brand-copy">
+                <strong>AI 轨迹</strong>
+                <small>LOCAL ACTIVITY OS</small>
+              </span>
+            </button>
+            <button
+              className="icon-button brand-toggle desktop-only"
+              type="button"
+              onClick={() => setCollapsed(true)}
+              title="收起导航"
+              aria-label="收起导航"
+            >
+              {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+            </button>
+            <button
+              className="icon-button mobile-only"
+              type="button"
+              onClick={() => setMobileOpen(false)}
+              title="关闭导航"
+              aria-label="关闭导航"
+            >
+              <X size={18} />
+            </button>
+          </div>
 
         <nav className="primary-nav" aria-label="主要导航">
           <span className="nav-eyebrow">工作区</span>
@@ -118,15 +168,32 @@ export function AppShell({
         </nav>
 
         <div className="sidebar-bottom">
-          <button className="privacy-card" type="button" onClick={() => onNavigate('settings')}>
-            <span className="privacy-icon">
-              <ShieldCheck size={18} />
-            </span>
-            <span className="privacy-copy">
-              <strong>数据留在本机</strong>
-              <small>全部在本机解析，不上传</small>
-            </span>
-          </button>
+          <div className="sidebar-actions">
+            <button className="privacy-card" type="button" onClick={() => onNavigate('settings')}>
+              <span className="privacy-icon">
+                <ShieldCheck size={16} />
+              </span>
+              <span className="privacy-copy">
+                <strong>数据留在本机</strong>
+                <small>不上传</small>
+              </span>
+            </button>
+            <button
+              className="privacy-card update-card"
+              type="button"
+              onClick={() => void runSidebarUpdate()}
+              disabled={updateChecking || update?.state === 'downloading'}
+              aria-busy={updateChecking || update?.state === 'downloading'}
+            >
+              <span className="privacy-icon update-icon">
+                <RefreshCw size={16} className={updateChecking ? 'spin' : undefined} />
+              </span>
+              <span className="privacy-copy">
+                <strong>软件自动更新</strong>
+                <small>{updateStatus}</small>
+              </span>
+            </button>
+          </div>
           <div className="capture-health">
             <span className={classNames('pulse-dot', !loading && 'pulse-dot-live')} />
             <span>
@@ -188,7 +255,7 @@ export function AppShell({
               <input
                 value={searchQuery}
                 onChange={(event) => onSearchChange(event.target.value)}
-                placeholder="搜索会话、项目"
+                placeholder="搜索会话、项目、文件"
                 aria-label="搜索"
               />
               <button className="search-shortcut" type="button" onClick={onOpenCommand}>
@@ -285,5 +352,6 @@ export function AppShell({
         </nav>
       </div>
     </div>
+    </>
   )
 }

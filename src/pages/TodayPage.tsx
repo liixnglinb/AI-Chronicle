@@ -8,12 +8,103 @@ import {
   sessionTouchesDay,
 } from '../lib/format'
 import { saveText } from '../lib/desktop'
-import { SessionRow } from '../components/SessionRow'
 import type { SessionRecord, ToastMessage } from '../types'
 
 interface TodayPageProps {
   searchQuery: string
   onToast: (toast: Omit<ToastMessage, 'id'>) => void
+}
+
+interface WorkSummaryItem {
+  key: string
+  project: string
+  path: string
+  tools: string[]
+  count: number
+  turns: number
+  artifactCount: number
+  artifactNames: string[]
+  first: number | null
+  last: number | null
+  focus: string
+}
+
+const ARTIFACT_KINDS: Array<{ test: RegExp; label: string }> = [
+  { test: /\.(tsx?|jsx?|css|html)$/i, label: '界面与代码' },
+  { test: /\.(py|cjs|mjs)$/i, label: '脚本与流程' },
+  { test: /\.(md|txt|docx?|pdf)$/i, label: '文档与说明' },
+  { test: /\.(json|ya?ml|toml|ini|env)$/i, label: '配置与数据' },
+  { test: /\.(png|jpe?g|webp|svg|ico)$/i, label: '视觉素材' },
+  { test: /\.(exe|msi|zip|dmg|blockmap)$/i, label: '安装包与发布物' },
+]
+
+function basenameOf(path: string): string {
+  return path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path
+}
+
+function artifactKind(path: string): string | null {
+  return ARTIFACT_KINDS.find((item) => item.test.test(path))?.label ?? null
+}
+
+/* 按工作目录归组，只提炼项目、软件、轮次和真实产出，不展示用户发给 AI 的原文 */
+function buildWorkSummary(sessions: SessionRecord[]): WorkSummaryItem[] {
+  const projects = new Map<string, WorkSummaryItem & { colorMap: Map<string, string> }>()
+
+  for (const s of sessions) {
+    const path = s.projectPath || s.project || '(未知目录)'
+    let item = projects.get(path)
+    if (!item) {
+      item = {
+        key: `${s.tool}:${path}`,
+        project: s.project || basenameOf(path) || '(未知项目)',
+        path,
+        tools: [],
+        count: 0,
+        turns: 0,
+        artifactCount: 0,
+        artifactNames: [],
+        first: null,
+        last: null,
+        focus: '',
+        colorMap: new Map(),
+      }
+      projects.set(path, item)
+    }
+
+    if (!item.tools.includes(s.toolName)) item.tools.push(s.toolName)
+    if (!item.colorMap.has(s.toolName)) item.colorMap.set(s.toolName, s.toolColor)
+    item.count += 1
+    item.turns += s.turns
+    if (s.start && (!item.first || s.start < item.first)) item.first = s.start
+    const end = s.end || s.start
+    if (end && (!item.last || end > item.last)) item.last = end
+
+    for (const artifact of s.artifacts ?? []) {
+      item.artifactCount += 1
+      if (!item.artifactNames.includes(artifact.name)) item.artifactNames.push(artifact.name)
+    }
+  }
+
+  const result = [...projects.values()].map((item) => {
+    const kinds = new Set<string>()
+    const sessionsByPath = sessions.filter((s) => (s.projectPath || s.project || '(未知目录)') === item.path)
+    for (const s of sessionsByPath) {
+      for (const artifact of s.artifacts ?? []) {
+        const kind = artifactKind(artifact.name)
+        if (kind) kinds.add(kind)
+      }
+    }
+    item.focus = kinds.size
+      ? [...kinds].slice(0, 3).join('、')
+      : item.turns > 3
+        ? '方案讨论与问题排查'
+        : '轻量协作与信息整理'
+    return item
+  })
+
+  return result
+    .sort((a, b) => (b.last || 0) - (a.last || 0))
+    .map(({ colorMap: _colorMap, ...item }) => item)
 }
 
 function buildDailyReport(sessions: SessionRecord[]): string {
@@ -31,11 +122,21 @@ function buildDailyReport(sessions: SessionRecord[]): string {
     `今日共 ${sessions.length} 个会话，涉及 ${tools.size} 个软件，${turns} 轮对话，产出 ${artifacts.size} 个文件。`,
   )
   lines.push('')
+  lines.push('## 工作摘要')
+  lines.push('')
+  for (const tool of buildWorkSummary(sessions)) {
+    const artifacts = tool.artifactNames.slice(0, 3).join('、')
+    const detail = artifacts ? `主要涉及${tool.focus}，产出 ${artifacts}` : `主要涉及${tool.focus}`
+    lines.push(
+      `- **${tool.project}**（${tool.tools.join(' / ')}，${tool.count} 会话 · ${tool.turns} 轮）：${detail}`,
+    )
+  }
+  lines.push('')
   lines.push('| 时间 | 软件 | 项目 | 做了什么 | 轮次 |')
   lines.push('|---|---|---|---|---|')
   for (const s of sessions) {
     lines.push(
-      `| ${formatTimeRange(s.start, s.end)} | ${s.toolName} | ${s.project} | ${s.title.replace(/\|/g, '｜')} | ${s.turns} |`,
+      `| ${formatTimeRange(s.start, s.end)} | ${s.toolName} | ${s.project} | ${(s.artifacts ?? []).length ? `处理 ${(s.artifacts ?? []).length} 个产出文件` : '推进讨论与排查'} | ${s.turns} |`,
     )
   }
   if (artifacts.size) {
@@ -83,6 +184,8 @@ export function TodayPage({ searchQuery, onToast }: TodayPageProps) {
     return [...map.values()].sort((a, b) => b.count - a.count)
   }, [today])
 
+  const workSummary = useMemo(() => buildWorkSummary(filtered), [filtered])
+
   const kpis = useMemo(() => {
     if (!today.length) return null
     const turns = today.reduce((sum, s) => sum + s.turns, 0)
@@ -116,7 +219,7 @@ export function TodayPage({ searchQuery, onToast }: TodayPageProps) {
       <div className="page">
         <div className="page-heading">
           <div>
-            <span className="page-kicker">今天</span>
+            <span className="page-kicker">今日工作台</span>
             <strong>需要桌面版</strong>
           </div>
         </div>
@@ -142,7 +245,7 @@ export function TodayPage({ searchQuery, onToast }: TodayPageProps) {
               weekday: 'long',
             })}
           </span>
-          <strong>今天用 AI 做了什么</strong>
+          <strong>今日工作台</strong>
         </div>
         <div className="heading-actions">
           <button className="button button-secondary" type="button" onClick={() => refresh(true)}>
@@ -210,19 +313,42 @@ export function TodayPage({ searchQuery, onToast }: TodayPageProps) {
         </div>
       )}
 
-      {data && filtered.length > 0 && (
+      {data && workSummary.length > 0 && (
         <section className="session-section">
           <div className="section-title-row">
-            <span className="eyebrow">会话明细</span>
-            <span className="result-count">
-              {filtered.length === today.length
-                ? `${today.length} 个会话 · 按时间倒序`
-                : `匹配 ${filtered.length} / ${today.length} 个会话`}
-            </span>
+            <span className="eyebrow">今天做了什么</span>
+            <span className="result-count">按工作目录归组 · 只显示工作结论与产出</span>
           </div>
-          <div className="session-list">
-            {filtered.map((s) => (
-              <SessionRow key={s.id} session={s} />
+          <div className="work-summary">
+            {workSummary.map((item) => (
+              <article className="summary-tool" key={item.key}>
+                <div className="summary-tool-head">
+                  <strong>{item.project}</strong>
+                  <small>{item.focus}</small>
+                </div>
+                <div className="summary-folder">
+                  <div className="summary-folder-path">
+                    <strong>
+                      {item.count} 个会话 · {item.turns} 轮
+                    </strong>
+                    <span>{item.tools.join(' / ')}</span>
+                    <small>
+                      {item.first && item.last ? formatTimeRange(item.first, item.last) : ''}
+                    </small>
+                  </div>
+                  <p className="summary-conclusion">
+                    在 <strong>{item.project}</strong> 中推进{item.focus}
+                    {item.artifactCount > 0 ? `，累计处理 ${item.artifactCount} 个产出文件。` : '。'}
+                  </p>
+                  {item.artifactNames.length > 0 && (
+                    <ul className="summary-points">
+                      {item.artifactNames.slice(0, 4).map((name) => (
+                        <li key={name}>{name}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </article>
             ))}
           </div>
         </section>

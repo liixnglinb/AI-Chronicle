@@ -5,18 +5,55 @@ import { SessionRow } from '../components/SessionRow'
 import { ToolDot } from '../components/ToolDot'
 import type { SessionRecord } from '../types'
 
-const VISIBLE_DAYS = 14
+interface HistoryPageProps {
+  searchQuery: string
+}
 
-export function HistoryPage() {
+type DateRange = 7 | 30 | 0
+
+const PAGE_SIZE = 10
+
+export function HistoryPage({ searchQuery }: HistoryPageProps) {
   const { data, loading, isDesktop } = useChronicle()
   const [openDay, setOpenDay] = useState<string | null>(null)
+  const [range, setRange] = useState<DateRange>(0)
+  const [toolFilter, setToolFilter] = useState('all')
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
+
+  const tools = useMemo(() => {
+    const map = new Map<string, { name: string; color: string; count: number }>()
+    for (const s of data?.sessions ?? []) {
+      const item = map.get(s.tool) || { name: s.toolName, color: s.toolColor, count: 0 }
+      item.count += 1
+      map.set(s.tool, item)
+    }
+    return [...map.values()].sort((a, b) => b.count - a.count)
+  }, [data])
+
+  const filteredSessions = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase()
+    const minTime = range ? Date.now() - range * 86_400_000 : 0
+    return (data?.sessions ?? [])
+      .filter((s) => {
+        if (toolFilter !== 'all' && s.tool !== toolFilter) return false
+        if (minTime && (s.start || 0) < minTime) return false
+        if (!query) return true
+        return (
+          s.title.toLowerCase().includes(query) ||
+          s.project.toLowerCase().includes(query) ||
+          s.toolName.toLowerCase().includes(query) ||
+          (s.artifacts ?? []).some((a) => a.name.toLowerCase().includes(query))
+        )
+      })
+      .sort((a, b) => (b.start || 0) - (a.start || 0))
+  }, [data, searchQuery, range, toolFilter])
 
   const days = useMemo(() => {
     const map = new Map<
       string,
       { sessions: SessionRecord[]; tools: Map<string, { name: string; color: string }> }
     >()
-    for (const s of data?.sessions ?? []) {
+    for (const s of filteredSessions) {
       if (!s.start) continue
       const key = dayKeyOf(s.start)
       let day = map.get(key)
@@ -29,21 +66,26 @@ export function HistoryPage() {
         day.tools.set(s.tool, { name: s.toolName, color: s.toolColor })
       }
     }
-    const keys = [...map.keys()].sort((a, b) => (a < b ? 1 : -1)).slice(0, VISIBLE_DAYS)
+    const keys = [...map.keys()]
+      .sort((a, b) => (a < b ? 1 : -1))
+      .slice(0, visibleCount)
     return keys.map((key) => {
       const day = map.get(key)!
       const sessions = [...day.sessions].sort((a, b) => (b.start || 0) - (a.start || 0))
       const minutes = sessions.reduce((sum, s) => sum + sessionDurationMinutes(s), 0)
       return { key, sessions, tools: [...day.tools.values()], minutes }
     })
-  }, [data])
+  }, [filteredSessions, visibleCount])
+
+  const totalMinutes = filteredSessions.reduce((sum, s) => sum + sessionDurationMinutes(s), 0)
+  const totalArtifacts = filteredSessions.reduce((sum, s) => sum + (s.artifacts ?? []).length, 0)
 
   if (!isDesktop) {
     return (
       <div className="page">
         <div className="empty-state">
           <strong>需要桌面版</strong>
-          <span>历史回看读取的是本机真实会话日志。</span>
+          <span>会话档案读取的是本机真实会话日志。</span>
         </div>
       </div>
     )
@@ -53,8 +95,60 @@ export function HistoryPage() {
     <div className="page">
       <div className="page-heading">
         <div>
-          <span className="page-kicker">最近 {VISIBLE_DAYS} 个有记录的日期</span>
-          <strong>历史回看</strong>
+          <span className="page-kicker">
+            {days.length
+              ? `${filteredSessions.length} 条会话 · ${totalArtifacts} 个产出 · 跨度 ${formatDuration(totalMinutes)}`
+              : '全部真实会话都保存在本机'}
+          </span>
+          <strong>会话档案</strong>
+        </div>
+      </div>
+
+      <div className="collection-toolbar">
+        <div className="filter-chip-scroll">
+          {([
+            ['all', '全部时间'],
+            ['30', '近 30 天'],
+            ['7', '近 7 天'],
+          ] as Array<[string, string]>).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              className={range.toString() === value ? 'filter-chip filter-chip-active' : 'filter-chip'}
+              onClick={() => {
+                setRange(value === 'all' ? 0 : Number(value) as DateRange)
+                setVisibleCount(PAGE_SIZE)
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <div className="filter-chip-scroll">
+          <button
+            type="button"
+            className={toolFilter === 'all' ? 'filter-chip filter-chip-active' : 'filter-chip'}
+            onClick={() => {
+              setToolFilter('all')
+              setVisibleCount(PAGE_SIZE)
+            }}
+          >
+            全部软件
+          </button>
+          {tools.map((tool) => (
+            <button
+              key={tool.name}
+              type="button"
+              className={toolFilter === tool.name ? 'filter-chip filter-chip-active' : 'filter-chip'}
+              onClick={() => {
+                setToolFilter(tool.name)
+                setVisibleCount(PAGE_SIZE)
+              }}
+            >
+              <span className="tool-dot" style={{ ['--tool-color' as string]: tool.color }} />
+              {tool.name} · {tool.count}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -67,8 +161,8 @@ export function HistoryPage() {
 
       {data && days.length === 0 && (
         <div className="empty-state">
-          <strong>还没有任何会话记录</strong>
-          <span>接入的软件产生会话后，这里会按天展示。</span>
+          <strong>没有匹配的会话档案</strong>
+          <span>调整时间范围、软件筛选或顶部搜索词后重试。</span>
         </div>
       )}
 
@@ -108,6 +202,18 @@ export function HistoryPage() {
           )
         })}
       </div>
+
+      {filteredSessions.length > visibleCount * 2 && (
+        <div className="collection-more">
+          <button
+            className="button button-secondary"
+            type="button"
+            onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}
+          >
+            继续加载更早日志
+          </button>
+        </div>
+      )}
     </div>
   )
 }

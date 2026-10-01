@@ -84,14 +84,14 @@ function App() {
 
   useEffect(() => {
     const titles: Record<ViewId, string> = {
-      today: '今天',
-      history: '历史',
-      timeline: '时间线',
-      projects: '项目',
-      library: '成果库',
-      insights: '洞察',
-      sources: '数据源',
-      settings: '设置',
+      today: '今日工作台',
+      history: '会话档案',
+      timeline: '时间轴',
+      projects: '项目集',
+      library: '成果集',
+      insights: '分析',
+      sources: '接入中心',
+      settings: '设置中心',
     }
     document.title = `${titles[activeView]} · AI 轨迹`
   }, [activeView])
@@ -134,23 +134,21 @@ function App() {
       case 'timeline':
         return <TimelinePage searchQuery={searchQuery} />
       case 'history':
-        return <HistoryPage />
+        return <HistoryPage searchQuery={searchQuery} />
       case 'projects':
-        return <ProjectsPage searchQuery={searchQuery} />
+        return <ProjectsPage searchQuery={searchQuery} onToast={pushToast} />
       case 'library':
         return <LibraryPage searchQuery={searchQuery} />
       case 'insights':
-        return <InsightsPage />
+        return <InsightsPage onToast={pushToast} />
       case 'sources':
-        return <SourcesPage />
+        return <SourcesPage onToast={pushToast} />
       case 'settings':
         return (
           <SettingsPage
             theme={theme}
+            onThemeChange={setTheme}
             onToast={pushToast}
-            onThemeToggle={() =>
-              setTheme((current) => (current === 'light' ? 'dark' : 'light'))
-            }
           />
         )
       case 'today':

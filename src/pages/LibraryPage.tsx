@@ -1,5 +1,12 @@
 import { useMemo, useState } from 'react'
-import { FileCode2, FileImage, FileText, FileVideo, File, Database } from 'lucide-react'
+import {
+  FileCode2,
+  FileImage,
+  FileText,
+  FileVideo,
+  File,
+  Database,
+} from 'lucide-react'
 import { useChronicle } from '../lib/store'
 import { dayKeyOf, formatDayLabel, formatTimeRange } from '../lib/format'
 import { ToolDot } from '../components/ToolDot'
@@ -10,7 +17,11 @@ interface LibraryPageProps {
   searchQuery: string
 }
 
+type ArtifactKind = 'all' | 'code' | 'doc' | 'image' | 'video' | 'data'
+type ArtifactSort = 'recent' | 'name' | 'size'
+
 interface ArtifactRow extends ArtifactRecord {
+  kind: ArtifactKind
   tool: string
   toolName: string
   toolColor: string
@@ -33,6 +44,17 @@ const IMAGE_EXT = new Set([
   '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.ico', '.bmp',
 ])
 const VIDEO_EXT = new Set(['.mp4', '.mov', '.webm', '.mkv', '.avi'])
+const DATA_EXT = new Set(['.db', '.sqlite', '.csv', '.xlsx', '.json'])
+
+function kindOf(name: string): ArtifactKind {
+  const ext = name.slice(name.lastIndexOf('.')).toLowerCase()
+  if (CODE_EXT.has(ext)) return 'code'
+  if (IMAGE_EXT.has(ext)) return 'image'
+  if (VIDEO_EXT.has(ext)) return 'video'
+  if (DATA_EXT.has(ext)) return 'data'
+  if (TEXT_EXT.has(ext)) return 'doc'
+  return 'doc'
+}
 
 function iconForExt(name: string): { Icon: LucideIcon; tone: string } {
   const ext = name.slice(name.lastIndexOf('.')).toLowerCase()
@@ -40,9 +62,7 @@ function iconForExt(name: string): { Icon: LucideIcon; tone: string } {
   if (IMAGE_EXT.has(ext)) return { Icon: FileImage, tone: 'var(--amber)' }
   if (CODE_EXT.has(ext)) return { Icon: FileCode2, tone: 'var(--blue)' }
   if (TEXT_EXT.has(ext)) return { Icon: FileText, tone: 'var(--coral)' }
-  if (ext === '.db' || ext === '.sqlite' || ext === '.csv' || ext === '.xlsx') {
-    return { Icon: Database, tone: 'var(--green)' }
-  }
+  if (DATA_EXT.has(ext)) return { Icon: Database, tone: 'var(--green)' }
   return { Icon: File, tone: 'var(--text-faint)' }
 }
 
@@ -55,6 +75,10 @@ function formatSize(bytes: number): string {
 export function LibraryPage({ searchQuery }: LibraryPageProps) {
   const { data, loading, isDesktop } = useChronicle()
   const [openPath, setOpenPath] = useState<string | null>(null)
+  const [kind, setKind] = useState<ArtifactKind>('all')
+  const [projectFilter, setProjectFilter] = useState('all')
+  const [toolFilter, setToolFilter] = useState('all')
+  const [sort, setSort] = useState<ArtifactSort>('recent')
 
   const rows = useMemo<ArtifactRow[]>(() => {
     const list: ArtifactRow[] = []
@@ -62,6 +86,7 @@ export function LibraryPage({ searchQuery }: LibraryPageProps) {
       for (const a of s.artifacts ?? []) {
         list.push({
           ...a,
+          kind: kindOf(a.name),
           tool: s.tool,
           toolName: s.toolName,
           toolColor: s.toolColor,
@@ -73,39 +98,65 @@ export function LibraryPage({ searchQuery }: LibraryPageProps) {
         })
       }
     }
-    // 同一文件可能被多个会话覆盖，按路径去重，保留最近的
+
     const byPath = new Map<string, ArtifactRow>()
-    for (const r of list.sort((x, y) => y.mtime - x.mtime)) {
-      if (!byPath.has(r.path)) byPath.set(r.path, r)
+    for (const row of list.sort((a, b) => b.mtime - a.mtime)) {
+      if (!byPath.has(row.path)) byPath.set(row.path, row)
     }
-    return [...byPath.values()].sort((x, y) => y.mtime - x.mtime)
+    return [...byPath.values()]
   }, [data])
 
+  const projects = useMemo(() => {
+    return [...new Set(rows.map((row) => row.project))]
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b, 'zh-CN'))
+  }, [rows])
+
+  const tools = useMemo(() => {
+    const map = new Map<string, { name: string; color: string; count: number }>()
+    for (const row of rows) {
+      const item = map.get(row.tool) || { name: row.toolName, color: row.toolColor, count: 0 }
+      item.count += 1
+      map.set(row.tool, item)
+    }
+    return [...map.values()].sort((a, b) => b.count - a.count)
+  }, [rows])
+
   const filtered = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase()
-    if (!q) return rows
-    return rows.filter(
-      (r) =>
-        r.name.toLowerCase().includes(q) ||
-        r.path.toLowerCase().includes(q) ||
-        r.project.toLowerCase().includes(q) ||
-        r.toolName.toLowerCase().includes(q),
-    )
-  }, [rows, searchQuery])
+    const query = searchQuery.trim().toLowerCase()
+    const result = rows.filter((row) => {
+      if (kind !== 'all' && row.kind !== kind) return false
+      if (projectFilter !== 'all' && row.project !== projectFilter) return false
+      if (toolFilter !== 'all' && row.tool !== toolFilter) return false
+      if (!query) return true
+      return (
+        row.name.toLowerCase().includes(query) ||
+        row.path.toLowerCase().includes(query) ||
+        row.project.toLowerCase().includes(query) ||
+        row.toolName.toLowerCase().includes(query)
+      )
+    })
+
+    return result.sort((a, b) => {
+      if (sort === 'name') return a.name.localeCompare(b.name, 'zh-CN')
+      if (sort === 'size') return b.size - a.size
+      return b.mtime - a.mtime
+    })
+  }, [rows, searchQuery, kind, projectFilter, toolFilter, sort])
 
   const byDay = useMemo(() => {
     const map = new Map<string, ArtifactRow[]>()
-    for (const r of filtered) {
-      const key = r.day || '未知日期'
+    for (const row of filtered) {
+      const key = row.day || '未知日期'
       if (!map.has(key)) map.set(key, [])
-      map.get(key)!.push(r)
+      map.get(key)!.push(row)
     }
     return [...map.entries()].sort((a, b) => (a[0] < b[0] ? 1 : -1))
   }, [filtered])
 
-  async function open(f: ArtifactRow) {
-    setOpenPath(f.path)
-    const result = await window.desktopAPI?.openPath(f.path)
+  async function open(row: ArtifactRow) {
+    setOpenPath(row.path)
+    const result = await window.desktopAPI?.openPath(row.path)
     if (result && !result.ok) {
       setOpenPath(null)
     }
@@ -116,7 +167,7 @@ export function LibraryPage({ searchQuery }: LibraryPageProps) {
       <div className="page">
         <div className="empty-state">
           <strong>需要桌面版</strong>
-          <span>成果库从本机会话对应的项目目录里提取真实产出文件。</span>
+          <span>成果集从本机会话对应的项目目录里提取真实产出文件。</span>
         </div>
       </div>
     )
@@ -127,14 +178,72 @@ export function LibraryPage({ searchQuery }: LibraryPageProps) {
       <div className="page-heading">
         <div>
           <span className="page-kicker">
-            最近 3 天 · 从会话对应的项目目录提取「会话期间改动过的文件」
+            {filtered.length
+              ? `${filtered.length} 个文件 · ${projects.length} 个项目 · 点击可直接打开`
+              : '从会话对应的项目目录提取会话期间改动过的文件'}
           </span>
-          <strong>成果库</strong>
+          <strong>成果集</strong>
         </div>
-        <div className="heading-actions">
-          {rows.length > 0 && (
-            <span className="result-count">{rows.length} 个文件</span>
-          )}
+      </div>
+
+      <div className="collection-toolbar">
+        <div className="filter-chip-scroll">
+          {([
+            ['all', '全部'],
+            ['code', '代码'],
+            ['doc', '文档'],
+            ['image', '图像'],
+            ['video', '视频'],
+            ['data', '数据'],
+          ] as Array<[ArtifactKind, string]>).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              className={kind === value ? 'filter-chip filter-chip-active' : 'filter-chip'}
+              onClick={() => setKind(value)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <div className="collection-selects">
+          <select
+            aria-label="筛选项目"
+            value={projectFilter}
+            onChange={(event) => setProjectFilter(event.target.value)}
+          >
+            <option value="all">全部项目</option>
+            {projects.map((project) => (
+              <option key={project} value={project}>{project}</option>
+            ))}
+          </select>
+          <select
+            aria-label="筛选软件"
+            value={toolFilter}
+            onChange={(event) => setToolFilter(event.target.value)}
+          >
+            <option value="all">全部软件</option>
+            {tools.map((tool) => (
+              <option key={tool.name} value={tool.name}>{tool.name}</option>
+            ))}
+          </select>
+          <div className="segmented-control" aria-label="排序方式">
+            {([
+              ['recent', '最近'],
+              ['name', '名称'],
+              ['size', '大小'],
+            ] as Array<[ArtifactSort, string]>).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                className={sort === value ? 'segmented-active' : undefined}
+                onClick={() => setSort(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -145,12 +254,12 @@ export function LibraryPage({ searchQuery }: LibraryPageProps) {
         </div>
       )}
 
-      {data && rows.length === 0 && (
+      {data && filtered.length === 0 && (
         <div className="empty-state">
-          <strong>最近 3 天还没有提取到产出文件</strong>
+          <strong>没有匹配的成果</strong>
           <span>
-            成果 = 会话时间窗内项目目录里被实际改动的文件。产生新会话后回到这里查看；
-            也可能是会话记录的工作目录已不存在。
+            成果是会话时间窗内项目目录里被实际改动的文件。调整筛选条件后重试，
+            或产生新会话后点「重新采集」。
           </span>
         </div>
       )}
@@ -162,29 +271,29 @@ export function LibraryPage({ searchQuery }: LibraryPageProps) {
             <span className="result-count">{list.length} 个文件</span>
           </div>
           <div className="artifact-list">
-            {list.map((f) => {
-              const { Icon, tone } = iconForExt(f.name)
-              const isOpen = openPath === f.path
+            {list.map((row) => {
+              const { Icon, tone } = iconForExt(row.name)
+              const isOpen = openPath === row.path
               return (
                 <button
-                  key={f.path}
+                  key={row.path}
                   type="button"
                   className={isOpen ? 'artifact-row artifact-row-open' : 'artifact-row'}
-                  onClick={() => void open(f)}
-                  title={f.path}
+                  onClick={() => void open(row)}
+                  title={row.path}
                 >
                   <span className="artifact-row-icon" style={{ color: tone }}>
                     <Icon size={17} />
                   </span>
                   <span className="artifact-row-main">
-                    <span className="artifact-row-name">{f.name}</span>
-                    <span className="artifact-row-path">{f.path}</span>
+                    <span className="artifact-row-name">{row.name}</span>
+                    <span className="artifact-row-path">{row.path}</span>
                   </span>
                   <span className="artifact-row-meta">
-                    <ToolDot color={f.toolColor} name={f.toolName} />
-                    <span>{f.project}</span>
-                    <span>{f.range}</span>
-                    <span>{formatSize(f.size)}</span>
+                    <ToolDot color={row.toolColor} name={row.toolName} />
+                    <span>{row.project}</span>
+                    <span>{row.range}</span>
+                    <span>{formatSize(row.size)}</span>
                   </span>
                 </button>
               )

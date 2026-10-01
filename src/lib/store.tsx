@@ -9,11 +9,37 @@ import {
 } from 'react'
 import type { ChronicleData } from '../types'
 
+export type AutoRefreshInterval = 60 | 300 | 900 | 0
+
+export interface ChronicleSettings {
+  autoRefreshSeconds: AutoRefreshInterval
+}
+
+const SETTINGS_KEY = 'ai-chronicle-settings-v1'
+const DEFAULT_SETTINGS: ChronicleSettings = { autoRefreshSeconds: 60 }
+
+function loadSettings(): ChronicleSettings {
+  try {
+    const raw = window.localStorage.getItem(SETTINGS_KEY)
+    if (!raw) return DEFAULT_SETTINGS
+    const parsed = JSON.parse(raw) as Partial<ChronicleSettings>
+    return {
+      autoRefreshSeconds: [0, 60, 300, 900].includes(parsed.autoRefreshSeconds ?? 60)
+        ? (parsed.autoRefreshSeconds as AutoRefreshInterval)
+        : DEFAULT_SETTINGS.autoRefreshSeconds,
+    }
+  } catch {
+    return DEFAULT_SETTINGS
+  }
+}
+
 interface ChronicleContextValue {
   data: ChronicleData | null
   loading: boolean
   error: string | null
   isDesktop: boolean
+  settings: ChronicleSettings
+  updateSettings: (settings: Partial<ChronicleSettings>) => void
   refresh: (force?: boolean) => Promise<void>
   update: {
     state: string
@@ -32,6 +58,7 @@ export function ChronicleProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(() => !!window.desktopAPI)
   const [error, setError] = useState<string | null>(null)
   const [update, setUpdate] = useState<ChronicleContextValue['update']>(null)
+  const [settings, setSettings] = useState<ChronicleSettings>(loadSettings)
   const isDesktop = !!window.desktopAPI
 
   const load = useCallback(async (force = false) => {
@@ -52,16 +79,27 @@ export function ChronicleProvider({ children }: { children: ReactNode }) {
     void load(false)
   }, [load])
 
-  // 数据保活：窗口聚焦 / 每 60 秒静默刷新一次。
+  const updateSettings = useCallback((next: Partial<ChronicleSettings>) => {
+    setSettings((current) => {
+      const merged = { ...current, ...next }
+      window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(merged))
+      return merged
+    })
+  }, [])
+
+  // 数据保活：窗口聚焦 / 按用户偏好静默刷新。
   // 采集层有文件级缓存，未变化的文件直接复用，代价很小。
   useEffect(() => {
     if (!isDesktop) return undefined
     const onFocus = () => {
       void load(false)
     }
+    const interval = settings.autoRefreshSeconds
+    if (!interval) return undefined
+
     const timer = window.setInterval(() => {
       void load(false)
-    }, 60_000)
+    }, interval * 1000)
     window.addEventListener('focus', onFocus)
     document.addEventListener('visibilitychange', onFocus)
     return () => {
@@ -69,7 +107,7 @@ export function ChronicleProvider({ children }: { children: ReactNode }) {
       window.removeEventListener('focus', onFocus)
       document.removeEventListener('visibilitychange', onFocus)
     }
-  }, [isDesktop, load])
+  }, [isDesktop, load, settings.autoRefreshSeconds])
 
   // 更新状态：主进程事件 → 上下文（常驻更新框 / 设置页共用）
   useEffect(() => {
@@ -87,8 +125,17 @@ export function ChronicleProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const value = useMemo<ChronicleContextValue>(
-    () => ({ data, loading, error, isDesktop, refresh: load, update }),
-    [data, loading, error, isDesktop, load, update],
+    () => ({
+      data,
+      loading,
+      error,
+      isDesktop,
+      settings,
+      updateSettings,
+      refresh: load,
+      update,
+    }),
+    [data, loading, error, isDesktop, settings, updateSettings, load, update],
   )
 
   return <ChronicleContext.Provider value={value}>{children}</ChronicleContext.Provider>

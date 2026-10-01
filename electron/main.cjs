@@ -20,6 +20,16 @@ function createWindow() {
     backgroundColor: '#f3f5f4',
     title: 'AI 轨迹',
     icon: fs.existsSync(iconPath) ? iconPath : undefined,
+    ...(process.platform === 'win32'
+      ? {
+          titleBarStyle: 'hidden',
+          titleBarOverlay: {
+            color: '#131315',
+            symbolColor: '#e8ecea',
+            height: 40,
+          },
+        }
+      : {}),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
