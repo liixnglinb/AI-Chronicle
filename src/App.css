@@ -100,23 +100,23 @@
   --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px color-mix(in srgb, var(--primary) 70%, transparent);
   --focus-ring-inset: inset 0 0 0 2px color-mix(in srgb, var(--primary) 70%, transparent);
 
-  /* 中性色 —— 浅色 */
-  --bg: #f5f6f7;
-  --bg-soft: #eef0f2;
-  --surface: #ffffff;
+  /* 中性色 —— 浅色：以黑 / 石墨为品牌主轴，白色只作为内容承托 */
+  --bg: #f1f1ef;
+  --bg-soft: #e7e7e4;
+  --surface: #fafaf8;
   --surface-raised: #ffffff;
-  --surface-hover: #f2f4f5;
-  --surface-strong: #e6e9eb;
-  --text: #15181a;
-  --text-soft: #51585d;
-  --text-faint: #6c7378;
-  --border: #e1e4e6;
-  --border-subtle: #ebedef;
+  --surface-hover: #ededeb;
+  --surface-strong: #dededb;
+  --text: #121313;
+  --text-soft: #4d504f;
+  --text-faint: #6b6e6c;
+  --border: #d7d8d5;
+  --border-subtle: #e5e5e2;
 
-  /* 品牌与语义色 —— 浅色 */
-  --primary: #0e9a86;
-  --primary-strong: #0a7a6a;
-  --primary-soft: #e0f3ef;
+  /* 品牌与语义色 —— 浅色：主按钮、选中态、焦点环统一使用黑色 */
+  --primary: #191a19;
+  --primary-strong: #000000;
+  --primary-soft: #e3e3e0;
   --green: #12805a;
   --green-soft: #e2f4ec;
   --amber: #9c6708;
