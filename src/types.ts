@@ -1,14 +1,7 @@
 import type { LucideIcon } from 'lucide-react'
 
 export type ViewId =
-  | 'today'
-  | 'history'
-  | 'timeline'
-  | 'projects'
-  | 'library'
-  | 'insights'
-  | 'sources'
-  | 'settings'
+  'today' | 'history' | 'timeline' | 'projects' | 'library' | 'insights' | 'sources' | 'settings'
 
 export interface NavItem {
   id: ViewId
@@ -37,6 +30,13 @@ export type UpdateStatus = {
   version?: string
   percent?: number
   message?: string
+  /** Release 说明（已转纯文本） */
+  notes?: string
+  /** 当前使用的更新源标签 */
+  source?: string
+  /** 用户主动跳过的版本号，供界面提供「恢复」入口 */
+  skippedVersion?: string
+  probes?: Array<{ id: string; label: string; ok: boolean; ms: number }>
 }
 
 // 会话与数据源的结构与 electron/ingest.cjs 输出保持一致

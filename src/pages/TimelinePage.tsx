@@ -1,7 +1,11 @@
 import { useMemo } from 'react'
 import { useChronicle } from '../lib/store'
-import { dayKeyOf, sessionTouchesDay } from '../lib/format'
+import { dayKeyOf, formatDuration, sessionTouchesDay } from '../lib/format'
 import { SessionRow } from '../components/SessionRow'
+import { PageHeader } from '../components/PageHeader'
+import { EmptyState, DesktopOnlyPage } from '../components/EmptyState'
+import { SkeletonPage } from '../components/Skeleton'
+import { classNames } from '../lib/utils'
 
 interface TimelinePageProps {
   searchQuery: string
@@ -50,48 +54,78 @@ export function TimelinePage({ searchQuery }: TimelinePageProps) {
   }, [today, searchQuery])
 
   const maxActive = Math.max(1, ...hours.map((h) => h.active))
+  const peakHour = useMemo(() => {
+    let index = -1
+    let max = 0
+    hours.forEach((h, i) => {
+      if (h.active > max) {
+        max = h.active
+        index = i
+      }
+    })
+    return index
+  }, [hours])
+
+  const activeMinutes = useMemo(() => hours.reduce((sum, h) => sum + h.active, 0), [hours])
 
   if (!isDesktop) {
-    return (
-      <div className="page">
-        <div className="empty-state">
-          <strong>需要桌面版</strong>
-          <span>时间线读取的是本机真实会话日志。</span>
-        </div>
-      </div>
-    )
+    return <DesktopOnlyPage title="时间轴" description="时间轴读取的是本机真实会话日志。" />
   }
+
+  const kicker = today.length
+    ? [
+        `${today.length} 个会话`,
+        activeMinutes > 0 ? `活跃 ${formatDuration(Math.round(activeMinutes))}` : '',
+        peakHour >= 0 ? `峰值 ${String(peakHour).padStart(2, '0')}:00` : '',
+      ]
+        .filter(Boolean)
+        .join(' · ')
+    : '今天 · 分时分布'
 
   return (
     <div className="page">
-      <div className="page-heading">
-        <div>
-          <span className="page-kicker">今天 · 分时分布</span>
-          <strong>活动时间线</strong>
-        </div>
-      </div>
+      <PageHeader kicker={kicker} title="活动时间线" />
 
-      {loading && !data && (
-        <div className="page-loading">
-          <span />
-          正在读取本机 AI 会话日志…
-        </div>
-      )}
+      {loading && !data && <SkeletonPage cells={0} rows={5} />}
 
       {data && (
-        <div className="hour-grid">
-          {hours.map((h, i) => (
-            <div className="hour-cell" key={i} title={`${i}:00 – ${i + 1}:00 · ${Math.round(h.active)} 分钟活跃`}>
-              <div className="hour-bar-wrap">
-                <div
-                  className="hour-bar"
-                  style={{ height: `${Math.round((h.active / maxActive) * 100)}%` }}
-                />
+        <section className="session-section">
+          <div className="hour-grid">
+            {hours.map((h, i) => (
+              <div
+                className={classNames('hour-cell', h.active > 0 && 'hour-cell-active')}
+                key={i}
+                title={`${String(i).padStart(2, '0')}:00 – ${String(i + 1).padStart(2, '0')}:00 · ${Math.round(h.active)} 分钟活跃 · ${h.sessions} 个会话`}
+              >
+                <div className="hour-bar-wrap">
+                  <div
+                    className={classNames(
+                      'hour-bar',
+                      h.active <= 0 && 'hour-bar-idle',
+                      i === peakHour && 'hour-bar-peak',
+                    )}
+                    style={{ height: `${Math.round((h.active / maxActive) * 100)}%` }}
+                  />
+                </div>
+                <span className="hour-label">{String(i).padStart(2, '0')}</span>
               </div>
-              <span className="hour-label">{String(i).padStart(2, '0')}</span>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+          <div className="hour-legend">
+            <span>
+              <i className="hour-legend-idle" />
+              无活动
+            </span>
+            <span>
+              <i className="hour-legend-active" />
+              有活动
+            </span>
+            <span>
+              <i className="hour-legend-peak" />
+              峰值时段（{String(Math.max(peakHour, 0)).padStart(2, '0')}:00）
+            </span>
+          </div>
+        </section>
       )}
 
       {data && today.length > 0 && (
@@ -109,10 +143,10 @@ export function TimelinePage({ searchQuery }: TimelinePageProps) {
       )}
 
       {data && !loading && today.length === 0 && (
-        <div className="empty-state">
-          <strong>今天还没有会话</strong>
-          <span>数据按小时分布展示，有会话后这里会出现柱状分布。</span>
-        </div>
+        <EmptyState
+          title="今天还没有会话"
+          description="数据按小时分布展示，有会话后这里会出现柱状分布。"
+        />
       )}
     </div>
   )

@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches-ignore: []
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    env:
+      # 跳过 Git 钩子安装：CI 显式执行 lint / test，不需要 pre-commit
+      CI: 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check formatting
+        run: npm run format:check
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type check and unit tests
+        run: npm run test
+
+      - name: Audit shipped dependencies
+        # 显式指定官方 registry：audit 接口在部分镜像上未实现
+        run: npm audit --registry=https://registry.npmjs.org --omit=dev --audit-level=high
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Verify production CSP is injected
+        shell: pwsh
+        run: |
+          $html = Get-Content dist/index.html -Raw
+          if ($html -notmatch 'Content-Security-Policy') {
+            Write-Error '生产构建缺少 CSP，构建产物不完整'
+            exit 1
+          }
+          Write-Host 'CSP 已注入'

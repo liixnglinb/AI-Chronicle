@@ -6,7 +6,25 @@ declare global {
     platform: string
     arch: string
     dataPath: string
+    logPath: string
+    zoom: number
     packaged: boolean
+  }
+
+  interface DesktopErrorReport {
+    scope: 'error' | 'unhandledrejection' | 'render'
+    message: string
+    stack?: string
+    source?: string
+  }
+
+  interface DesktopPrefs {
+    /** 关闭窗口时最小化到托盘而不是退出 */
+    minimizeToTray: boolean
+    /** 开机自动启动（仅安装版生效） */
+    autoStart: boolean
+    /** 采集完成后发送系统通知 */
+    notifyOnIngest: boolean
   }
 
   interface SessionArtifact {
@@ -72,15 +90,38 @@ declare global {
       }>
       ingest: (force?: boolean) => Promise<IngestData>
       getRuntimeInfo: () => Promise<DesktopRuntimeInfo>
+      setWindowTheme: (theme: 'light' | 'dark') => Promise<{ ok: boolean }>
+      reportError: (payload: DesktopErrorReport) => Promise<{ ok: boolean }>
+      setZoom: (level: number) => Promise<{ ok: boolean; zoom: number }>
+      getDesktopPrefs: () => Promise<DesktopPrefs>
+      setDesktopPrefs: (
+        patch: Partial<DesktopPrefs>,
+      ) => Promise<{ ok: boolean; prefs: DesktopPrefs }>
+      exportEncryptedBackup: (payload: {
+        content: string
+        password: string
+        defaultName?: string
+      }) => Promise<{ ok: boolean; filePath?: string; canceled?: boolean; message?: string }>
+      openEncryptedBackup: (password: string) => Promise<{
+        ok: boolean
+        content?: string
+        filePath?: string
+        canceled?: boolean
+        message?: string
+      }>
       checkForUpdates: () => Promise<{
         ok: boolean
         state: string
         version?: string
         message?: string
         source?: string
+        notes?: string
+        skipped?: boolean
         probes?: Array<{ id: string; label: string; ok: boolean; ms: number }>
       }>
-      installUpdate: () => Promise<{ ok: boolean; message?: string }>
+      installUpdate: () => Promise<{ ok: boolean; canceled?: boolean; message?: string }>
+      setSkippedUpdate: (version: string | null) => Promise<{ ok: boolean; skippedVersion: string }>
+      openUpdatePage: () => Promise<{ ok: boolean }>
       onUpdateStatus: (
         callback: (status: {
           state: string
@@ -89,6 +130,8 @@ declare global {
           message?: string
           notes?: string
           source?: string
+          skippedVersion?: string
+          probes?: Array<{ id: string; label: string; ok: boolean; ms: number }>
         }) => void,
       ) => () => void
     }

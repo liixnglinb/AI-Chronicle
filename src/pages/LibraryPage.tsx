@@ -1,17 +1,29 @@
 import { useMemo, useState } from 'react'
 import {
+  Database,
+  File,
   FileCode2,
   FileImage,
   FileText,
   FileVideo,
-  File,
-  Database,
+  FolderKanban,
+  HardDrive,
+  LayoutGrid,
 } from 'lucide-react'
 import { useChronicle } from '../lib/store'
-import { dayKeyOf, formatDayLabel, formatTimeRange } from '../lib/format'
+import { dayKeyOf, formatDayLabel, formatTimeRange, shortenPath } from '../lib/format'
+import { useIncrementalList } from '../lib/useIncrementalList'
 import { ToolDot } from '../components/ToolDot'
+import { PageHeader } from '../components/PageHeader'
+import { EmptyState, DesktopOnlyPage } from '../components/EmptyState'
+import { SummaryStrip } from '../components/SummaryStrip'
+import { Select } from '../components/Field'
+import { LoadMore } from '../components/Progress'
+import { SkeletonPage } from '../components/Skeleton'
+import { classNames } from '../lib/utils'
 import type { ArtifactRecord } from '../types'
 import type { LucideIcon } from 'lucide-react'
+import { ICON_SIZE } from '../lib/ui'
 
 interface LibraryPageProps {
   searchQuery: string
@@ -26,25 +38,63 @@ interface ArtifactRow extends ArtifactRecord {
   toolName: string
   toolColor: string
   project: string
+  projectPath: string
   sessionTitle: string
   range: string
   start: number
   day: string
+  /** 相对项目目录的短路径，用于列表展示 */
+  shortPath: string
 }
 
-const TEXT_EXT = new Set([
-  '.md', '.txt', '.doc', '.docx', '.pdf', '.csv', '.json', '.yaml', '.yml',
-])
+const TEXT_EXT = new Set(['.md', '.txt', '.doc', '.docx', '.pdf', '.csv', '.json', '.yaml', '.yml'])
 const CODE_EXT = new Set([
-  '.ts', '.tsx', '.js', '.jsx', '.py', '.cjs', '.mjs', '.java', '.kt', '.go',
-  '.rs', '.c', '.h', '.cpp', '.cs', '.swift', '.html', '.css', '.scss', '.sql',
-  '.sh', '.bat', '.ps1', '.vue', '.dart', '.php', '.rb',
+  '.ts',
+  '.tsx',
+  '.js',
+  '.jsx',
+  '.py',
+  '.cjs',
+  '.mjs',
+  '.java',
+  '.kt',
+  '.go',
+  '.rs',
+  '.c',
+  '.h',
+  '.cpp',
+  '.cs',
+  '.swift',
+  '.html',
+  '.css',
+  '.scss',
+  '.sql',
+  '.sh',
+  '.bat',
+  '.ps1',
+  '.vue',
+  '.dart',
+  '.php',
+  '.rb',
 ])
-const IMAGE_EXT = new Set([
-  '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.ico', '.bmp',
-])
+const IMAGE_EXT = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.ico', '.bmp'])
 const VIDEO_EXT = new Set(['.mp4', '.mov', '.webm', '.mkv', '.avi'])
 const DATA_EXT = new Set(['.db', '.sqlite', '.csv', '.xlsx', '.json'])
+
+const KIND_OPTIONS: Array<[ArtifactKind, string]> = [
+  ['all', '全部'],
+  ['code', '代码'],
+  ['doc', '文档'],
+  ['image', '图像'],
+  ['video', '视频'],
+  ['data', '数据'],
+]
+
+const SORT_OPTIONS: Array<[ArtifactSort, string]> = [
+  ['recent', '最近'],
+  ['name', '名称'],
+  ['size', '大小'],
+]
 
 function kindOf(name: string): ArtifactKind {
   const ext = name.slice(name.lastIndexOf('.')).toLowerCase()
@@ -91,10 +141,12 @@ export function LibraryPage({ searchQuery }: LibraryPageProps) {
           toolName: s.toolName,
           toolColor: s.toolColor,
           project: s.project,
+          projectPath: s.projectPath,
           sessionTitle: s.title,
           range: formatTimeRange(s.start, s.end),
           start: s.start || 0,
           day: s.start ? dayKeyOf(s.start) : '',
+          shortPath: shortenPath(a.path, s.projectPath),
         })
       }
     }
@@ -144,15 +196,30 @@ export function LibraryPage({ searchQuery }: LibraryPageProps) {
     })
   }, [rows, searchQuery, kind, projectFilter, toolFilter, sort])
 
+  // 成果集可能上百行，首屏只渲染前 40 行，其余按需追加
+  const {
+    visibleItems: visibleRows,
+    hasMore,
+    remaining,
+    loadMore,
+  } = useIncrementalList(filtered, {
+    pageSize: 40,
+    resetKey: `${kind}|${projectFilter}|${toolFilter}|${sort}|${searchQuery}`,
+  })
+
   const byDay = useMemo(() => {
     const map = new Map<string, ArtifactRow[]>()
-    for (const row of filtered) {
+    for (const row of visibleRows) {
       const key = row.day || '未知日期'
       if (!map.has(key)) map.set(key, [])
       map.get(key)!.push(row)
     }
     return [...map.entries()].sort((a, b) => (a[0] < b[0] ? 1 : -1))
-  }, [filtered])
+  }, [visibleRows])
+
+  const totalSize = filtered.reduce((sum, row) => sum + row.size, 0)
+  const projectCount = new Set(filtered.map((row) => row.project)).size
+  const toolCount = new Set(filtered.map((row) => row.tool)).size
 
   async function open(row: ArtifactRow) {
     setOpenPath(row.path)
@@ -164,42 +231,64 @@ export function LibraryPage({ searchQuery }: LibraryPageProps) {
 
   if (!isDesktop) {
     return (
-      <div className="page">
-        <div className="empty-state">
-          <strong>需要桌面版</strong>
-          <span>成果集从本机会话对应的项目目录里提取真实产出文件。</span>
-        </div>
-      </div>
+      <DesktopOnlyPage
+        title="成果集"
+        description="成果集从本机会话对应的项目目录里提取真实产出文件。"
+      />
     )
   }
 
   return (
     <div className="page">
-      <div className="page-heading">
-        <div>
-          <span className="page-kicker">
-            {filtered.length
-              ? `${filtered.length} 个文件 · ${projects.length} 个项目 · 点击可直接打开`
-              : '从会话对应的项目目录提取会话期间改动过的文件'}
-          </span>
-          <strong>成果集</strong>
-        </div>
-      </div>
+      <PageHeader
+        kicker={
+          filtered.length
+            ? `${filtered.length} 个文件 · ${projectCount} 个项目 · 点击可直接打开`
+            : '从会话对应的项目目录提取会话期间改动过的文件'
+        }
+        title="成果集"
+      />
+
+      {rows.length > 0 && (
+        <SummaryStrip
+          items={[
+            {
+              key: 'files',
+              label: '文件总数',
+              value: filtered.length,
+              icon: <FileText size={ICON_SIZE.sm} />,
+              tone: 'primary',
+            },
+            {
+              key: 'projects',
+              label: '涉及项目',
+              value: projectCount,
+              icon: <FolderKanban size={ICON_SIZE.sm} />,
+            },
+            {
+              key: 'tools',
+              label: '产出软件',
+              value: toolCount,
+              icon: <LayoutGrid size={ICON_SIZE.sm} />,
+            },
+            {
+              key: 'size',
+              label: '总体积',
+              value: formatSize(totalSize),
+              icon: <HardDrive size={ICON_SIZE.sm} />,
+              compact: true,
+            },
+          ]}
+        />
+      )}
 
       <div className="collection-toolbar">
         <div className="filter-chip-scroll">
-          {([
-            ['all', '全部'],
-            ['code', '代码'],
-            ['doc', '文档'],
-            ['image', '图像'],
-            ['video', '视频'],
-            ['data', '数据'],
-          ] as Array<[ArtifactKind, string]>).map(([value, label]) => (
+          {KIND_OPTIONS.map(([value, label]) => (
             <button
               key={value}
               type="button"
-              className={kind === value ? 'filter-chip filter-chip-active' : 'filter-chip'}
+              className={classNames('filter-chip', kind === value && 'filter-chip-active')}
               onClick={() => setKind(value)}
             >
               {label}
@@ -208,36 +297,36 @@ export function LibraryPage({ searchQuery }: LibraryPageProps) {
         </div>
 
         <div className="collection-selects">
-          <select
+          <Select
             aria-label="筛选项目"
             value={projectFilter}
             onChange={(event) => setProjectFilter(event.target.value)}
           >
             <option value="all">全部项目</option>
             {projects.map((project) => (
-              <option key={project} value={project}>{project}</option>
+              <option key={project} value={project}>
+                {project}
+              </option>
             ))}
-          </select>
-          <select
+          </Select>
+          <Select
             aria-label="筛选软件"
             value={toolFilter}
             onChange={(event) => setToolFilter(event.target.value)}
           >
             <option value="all">全部软件</option>
             {tools.map((tool) => (
-              <option key={tool.name} value={tool.name}>{tool.name}</option>
+              <option key={tool.name} value={tool.name}>
+                {tool.name}
+              </option>
             ))}
-          </select>
+          </Select>
           <div className="segmented-control" aria-label="排序方式">
-            {([
-              ['recent', '最近'],
-              ['name', '名称'],
-              ['size', '大小'],
-            ] as Array<[ArtifactSort, string]>).map(([value, label]) => (
+            {SORT_OPTIONS.map(([value, label]) => (
               <button
                 key={value}
                 type="button"
-                className={sort === value ? 'segmented-active' : undefined}
+                className={classNames(sort === value && 'segmented-active')}
                 onClick={() => setSort(value)}
               >
                 {label}
@@ -247,27 +336,19 @@ export function LibraryPage({ searchQuery }: LibraryPageProps) {
         </div>
       </div>
 
-      {loading && !data && (
-        <div className="page-loading">
-          <span />
-          正在读取本机 AI 会话日志…
-        </div>
-      )}
+      {loading && !data && <SkeletonPage cells={4} rows={6} />}
 
       {data && filtered.length === 0 && (
-        <div className="empty-state">
-          <strong>没有匹配的成果</strong>
-          <span>
-            成果是会话时间窗内项目目录里被实际改动的文件。调整筛选条件后重试，
-            或产生新会话后点「重新采集」。
-          </span>
-        </div>
+        <EmptyState
+          title="没有匹配的成果"
+          description="成果是会话时间窗内项目目录里被实际改动的文件。调整筛选条件后重试，或产生新会话后点「重新采集」。"
+        />
       )}
 
       {byDay.map(([day, list]) => (
         <section className="session-section" key={day}>
           <div className="section-title-row">
-            <span className="eyebrow">{formatDayLabel(day)}</span>
+            <span className="eyebrow">{day === '未知日期' ? day : formatDayLabel(day)}</span>
             <span className="result-count">{list.length} 个文件</span>
           </div>
           <div className="artifact-list">
@@ -278,20 +359,24 @@ export function LibraryPage({ searchQuery }: LibraryPageProps) {
                 <button
                   key={row.path}
                   type="button"
-                  className={isOpen ? 'artifact-row artifact-row-open' : 'artifact-row'}
+                  className={classNames(
+                    'artifact-row',
+                    'list-item-enter',
+                    isOpen && 'artifact-row-open',
+                  )}
                   onClick={() => void open(row)}
                   title={row.path}
                 >
                   <span className="artifact-row-icon" style={{ color: tone }}>
-                    <Icon size={17} />
+                    <Icon size={ICON_SIZE.sm} />
                   </span>
                   <span className="artifact-row-main">
                     <span className="artifact-row-name">{row.name}</span>
-                    <span className="artifact-row-path">{row.path}</span>
+                    <span className="artifact-row-path">{row.shortPath}</span>
                   </span>
                   <span className="artifact-row-meta">
                     <ToolDot color={row.toolColor} name={row.toolName} />
-                    <span>{row.project}</span>
+                    <span title={row.project}>{row.project}</span>
                     <span>{row.range}</span>
                     <span>{formatSize(row.size)}</span>
                   </span>
@@ -301,6 +386,8 @@ export function LibraryPage({ searchQuery }: LibraryPageProps) {
           </div>
         </section>
       ))}
+
+      {hasMore && <LoadMore noun="文件" remaining={remaining} onClick={loadMore} />}
     </div>
   )
 }

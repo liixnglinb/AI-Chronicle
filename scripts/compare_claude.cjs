@@ -33,8 +33,13 @@ function tmStyleTotalSync(path2) {
     if (!u || typeof u !== 'object') continue
     const k = m.id || obj.uuid
     if (!k) continue
-    seen.set(String(k), (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0) +
-      (u.cache_read_input_tokens || 0) + (u.output_tokens || 0))
+    seen.set(
+      String(k),
+      (u.input_tokens || 0) +
+        (u.cache_creation_input_tokens || 0) +
+        (u.cache_read_input_tokens || 0) +
+        (u.output_tokens || 0),
+    )
   }
   let total = 0
   for (const v of seen.values()) total += v
@@ -82,7 +87,9 @@ async function main() {
       }
     }
   }
-  console.log(`\n合计 ${files.length} 文件: TM ${tmAll.toLocaleString()}  AI轨迹 ${myAll.toLocaleString()}  差 ${(myAll - tmAll).toLocaleString()}  分歧文件 ${diffFiles}`)
+  console.log(
+    `\n合计 ${files.length} 文件: TM ${tmAll.toLocaleString()}  AI轨迹 ${myAll.toLocaleString()}  差 ${(myAll - tmAll).toLocaleString()}  分歧文件 ${diffFiles}`,
+  )
 }
 
 main()

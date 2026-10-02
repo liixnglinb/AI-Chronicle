@@ -1,0 +1,12 @@
+dist
+release
+node_modules
+ai-chronicle
+build-ui-check
+output
+coverage
+.workbuddy-ai
+package-lock.json
+*.log
+*.png
+*.ico

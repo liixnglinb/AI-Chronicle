@@ -25,10 +25,7 @@ export async function openLocalPath(path: string) {
   }
 }
 
-export async function saveText(
-  filename: string,
-  content: string,
-) {
+export async function saveText(filename: string, content: string) {
   if (window.desktopAPI) {
     return window.desktopAPI.saveTextFile(filename, content)
   }

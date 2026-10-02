@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Moon, RefreshCw, Search, X } from 'lucide-react'
 import { navItems } from '../data/nav'
 import { useChronicle } from '../lib/store'
+import { useFocusTrap } from '../lib/useFocusTrap'
 import { dayKeyOf, formatTimeRange } from '../lib/format'
 import type { ToastMessage, ViewId } from '../types'
+import { ICON_SIZE } from '../lib/ui'
 
 interface CommandPaletteProps {
   onClose: () => void
@@ -16,6 +18,8 @@ interface PaletteItem {
   key: string
   label: string
   hint: string
+  /** 结果行左侧的图标位：命令用图标，会话用软件色点 */
+  icon?: React.ReactNode
   run: () => void
 }
 
@@ -27,19 +31,25 @@ export function CommandPalette({
 }: CommandPaletteProps) {
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
+  const paletteRef = useRef<HTMLDivElement>(null)
   const { data, refresh, isDesktop } = useChronicle()
+
+  // 焦点陷阱：Tab 不会跑到遮罩后的页面，Esc 关闭后焦点归还给触发按钮
+  useFocusTrap(paletteRef, true, onClose)
 
   const items = useMemo<PaletteItem[]>(() => {
     const list: PaletteItem[] = navItems.map((item) => ({
       key: `nav-${item.id}`,
       label: `前往 ${item.label}`,
       hint: item.description,
+      icon: <item.icon size={ICON_SIZE.xs} />,
       run: () => onNavigate(item.id),
     }))
     list.push({
       key: 'theme',
       label: '切换深浅主题',
       hint: '外观',
+      icon: <Moon size={ICON_SIZE.xs} />,
       run: onThemeToggle,
     })
     if (isDesktop) {
@@ -47,12 +57,13 @@ export function CommandPalette({
         key: 'refresh',
         label: '重新采集数据',
         hint: '重新扫描全部接入来源',
+        icon: <RefreshCw size={ICON_SIZE.xs} />,
         run: () => {
           void refresh(true).then(() =>
             onAction({
               tone: 'success',
               title: '已重新采集',
-            message: '全部接入来源已按最新文件重新解析。',
+              message: '全部接入来源已按最新文件重新解析。',
             }),
           )
         },
@@ -76,7 +87,12 @@ export function CommandPalette({
         list.push({
           key: `session-${s.id}`,
           label: s.title,
-          hint: `${s.toolName} · ${s.project} · ${today ? formatTimeRange(s.start, s.end) : new Date(s.start || 0).toLocaleDateString('zh-CN')}`,
+          hint: `${s.toolName} · ${s.project} · ${
+            today
+              ? formatTimeRange(s.start, s.end)
+              : new Date(s.start || 0).toLocaleDateString('zh-CN')
+          }`,
+          icon: <span className="tool-dot" style={{ ['--tool-color' as string]: s.toolColor }} />,
           run: () => onNavigate(today ? 'today' : 'history'),
         })
       }
@@ -90,7 +106,7 @@ export function CommandPalette({
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') onClose()
+      // Esc 由 useFocusTrap 统一处理
       if (event.key === 'ArrowDown') {
         event.preventDefault()
         setActive((v) => Math.min(v + 1, items.length - 1))
@@ -114,25 +130,40 @@ export function CommandPalette({
 
   return (
     <div className="command-overlay" onClick={onClose}>
-      <div className="command-palette" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="command-palette"
+        ref={paletteRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="命令面板"
+        tabIndex={-1}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="command-input-row">
-          <Search size={16} />
+          <Search size={ICON_SIZE.sm} />
           <input
-            autoFocus
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="搜索会话、项目、文件或执行命令…"
-            aria-label="命令面板"
+            aria-label="搜索会话、项目、文件或执行命令"
+            role="combobox"
+            aria-expanded="true"
+            aria-controls="command-results"
+            aria-autocomplete="list"
+            aria-activedescendant={items[active] ? `command-option-${active}` : undefined}
           />
-          <button className="icon-button" type="button" onClick={onClose} aria-label="关闭">
-            <X size={16} />
+          <button className="icon-button" type="button" onClick={onClose} aria-label="关闭命令面板">
+            <X size={ICON_SIZE.sm} />
           </button>
         </div>
-        <div className="command-results">
+        <div className="command-results" id="command-results" role="listbox" aria-label="命令结果">
           {items.map((item, index) => (
             <button
               key={item.key}
+              id={`command-option-${index}`}
               type="button"
+              role="option"
+              aria-selected={index === active}
               className={
                 index === active ? 'command-result command-result-active' : 'command-result'
               }
@@ -142,13 +173,7 @@ export function CommandPalette({
                 onClose()
               }}
             >
-              <span className="command-result-icon">
-                {item.key === 'theme' ? (
-                  <Moon size={14} />
-                ) : item.key === 'refresh' ? (
-                  <RefreshCw size={14} />
-                ) : null}
-              </span>
+              <span className="command-result-icon">{item.icon}</span>
               <span className="command-result-copy">
                 <strong>{item.label}</strong>
                 <small>{item.hint}</small>

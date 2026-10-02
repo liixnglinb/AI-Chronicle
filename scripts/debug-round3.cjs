@@ -13,7 +13,9 @@ console.log('fzstd 导出:', Object.keys(fzstd).join(', '))
 {
   const db = new DatabaseSync(path.join(HOME, '.hermes', 'state.db'), { readOnly: true })
   const rows = db
-    .prepare('SELECT id, source, display_name, model, started_at FROM sessions ORDER BY started_at DESC LIMIT 3')
+    .prepare(
+      'SELECT id, source, display_name, model, started_at FROM sessions ORDER BY started_at DESC LIMIT 3',
+    )
     .all()
   for (const r of rows) {
     try {
@@ -98,7 +100,9 @@ console.log('fzstd 导出:', Object.keys(fzstd).join(', '))
   const a = uuidOf(wb)
   const b = uuidOf(wbAi)
   const overlap = [...b.keys()].filter((k) => a.has(k))
-  console.log(`workbuddy 文件 ${a.size} 个, workbuddy-ai 文件 ${b.size} 个, 同名重叠 ${overlap.length}`)
+  console.log(
+    `workbuddy 文件 ${a.size} 个, workbuddy-ai 文件 ${b.size} 个, 同名重叠 ${overlap.length}`,
+  )
   if (overlap.length) console.log('  重叠例:', overlap.slice(0, 3).join(' | '))
 }
 
@@ -118,7 +122,10 @@ console.log('fzstd 导出:', Object.keys(fzstd).join(', '))
     try {
       const raw = fzstd.decompress(new Uint8Array(fs.readFileSync(target)))
       const text = Buffer.from(raw).toString('utf8')
-      const lines = text.split('\n').filter((x) => x.trim()).slice(0, 2)
+      const lines = text
+        .split('\n')
+        .filter((x) => x.trim())
+        .slice(0, 2)
       console.log('== dsh 解压成功:', target)
       for (const l of lines) console.log('  ', l.slice(0, 300))
     } catch (err) {

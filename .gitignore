@@ -15,7 +15,17 @@ release
 output
 .playwright-cli
 *.local
+.env*
 .mimosa
+
+# 本地设计草稿与截图，不进入发布仓库
+icon-proposals/
+ac-*.png
+.workbuddy-ai/
+
+# 自检产物（逐页截图与构建检查日志）
+build-ui-check/
+coverage/
 
 # 本机解包运行副本（桌面快捷方式指向此处，不入库）
 ai-chronicle/

@@ -15,7 +15,9 @@ async function main() {
         }) + '\n',
       )
     } catch (err) {
-      process.stdout.write(JSON.stringify({ f: path.basename(f), tok: -1, err: String(err).slice(0, 80) }) + '\n')
+      process.stdout.write(
+        JSON.stringify({ f: path.basename(f), tok: -1, err: String(err).slice(0, 80) }) + '\n',
+      )
     }
   }
 }

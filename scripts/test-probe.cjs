@@ -13,7 +13,12 @@ function probe(rawUrl, timeoutMs) {
   return new Promise((resolve) => {
     const started = Date.now()
     let settled = false
-    const done = (r) => { if (!settled) { settled = true; resolve(r) } }
+    const done = (r) => {
+      if (!settled) {
+        settled = true
+        resolve(r)
+      }
+    }
     try {
       const parsed = new URL(rawUrl)
       if (parsed.protocol !== 'https:' || !ALLOWED.has(parsed.hostname)) {
@@ -21,11 +26,25 @@ function probe(rawUrl, timeoutMs) {
         return
       }
       const req = require('electron').net.request({ method: 'GET', url: parsed.href })
-      const timer = setTimeout(() => { done({ ok: false, reason: '超时' }); try { req.abort() } catch {} }, timeoutMs)
-      req.on('response', (res) => { clearTimeout(timer); res.resume(); done({ ok: res.statusCode < 400, status: res.statusCode, ms: Date.now() - started }) })
-      req.on('error', (e) => { clearTimeout(timer); done({ ok: false, reason: String(e && e.message).slice(0, 40) }) })
+      const timer = setTimeout(() => {
+        done({ ok: false, reason: '超时' })
+        try {
+          req.abort()
+        } catch {}
+      }, timeoutMs)
+      req.on('response', (res) => {
+        clearTimeout(timer)
+        res.resume()
+        done({ ok: res.statusCode < 400, status: res.statusCode, ms: Date.now() - started })
+      })
+      req.on('error', (e) => {
+        clearTimeout(timer)
+        done({ ok: false, reason: String(e && e.message).slice(0, 40) })
+      })
       req.end()
-    } catch (e) { done({ ok: false, reason: String(e).slice(0, 40) }) }
+    } catch (e) {
+      done({ ok: false, reason: String(e).slice(0, 40) })
+    }
   })
 }
 

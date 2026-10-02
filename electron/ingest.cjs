@@ -133,11 +133,15 @@ function basenameOf(p) {
 }
 
 // 目录名 -> 项目路径（WorkBuddy / Claude projects 风格）
+// 旧格式用两个 '-' 分别代表 ':' 与 '\'（C--Users-me-proj），
+// 新格式把它们合并成一个 '-'（c-Users-me-proj），两种都要能还原。
+// 只有当剩余部分至少还含一个 '-'（即确实有多级目录）时才做还原，
+// 避免把「a-b」这类普通目录名误判成盘符路径。
 function decodeDirProject(dirName) {
   if (!dirName) return ''
-  const m = /^[Cc]-[-](.*)$/.exec(dirName)
-  if (!m) return dirName
-  return 'C:\\' + m[1].replace(/-/g, '\\')
+  const m = /^[Cc]-+(.+)$/.exec(dirName)
+  if (!m || !m[1].includes('-')) return dirName
+  return 'C:\\' + m[1].replace(/-+/g, '\\')
 }
 
 // ---------------------------------------------------------------- 会话结构
@@ -173,8 +177,17 @@ function finalizeSession(s) {
 
 // ---------------------------------------------------------------- 文件枚举
 const SKIP_DIRS = new Set([
-  'cache', 'code cache', 'gpucache', 'crashpad', 'node_modules',
-  'backups', 'tmp', 'blob_storage', 'serviceworker', 'telemetry', '.git',
+  'cache',
+  'code cache',
+  'gpucache',
+  'crashpad',
+  'node_modules',
+  'backups',
+  'tmp',
+  'blob_storage',
+  'serviceworker',
+  'telemetry',
+  '.git',
 ])
 
 function listFiles(roots, filter, state) {
@@ -288,8 +301,7 @@ function parseClaudeLikeFile(tool, filePath, dirNameHint) {
         const key = m.id || obj.uuid
         const entry = [
           usage.input_tokens || 0,
-          (usage.cache_read_input_tokens || 0) +
-            (usage.cache_creation_input_tokens || 0),
+          (usage.cache_read_input_tokens || 0) + (usage.cache_creation_input_tokens || 0),
           usage.output_tokens || 0,
         ]
         if (key) usageMap.set(String(key), entry)
@@ -512,7 +524,7 @@ function scanOpenCodeFamily(tool, dbPath, opts) {
     const titleOf = new Map()
     if (firstIds.size) {
       const partRows = db
-        .prepare("SELECT message_id, data FROM part WHERE data LIKE '%\"type\":\"text\"%'")
+        .prepare('SELECT message_id, data FROM part WHERE data LIKE \'%"type":"text"%\'')
         .all()
       const byMsg = new Map()
       for (const pr of partRows) {
@@ -530,21 +542,25 @@ function scanOpenCodeFamily(tool, dbPath, opts) {
     if (withTokens) {
       const uRows = db
         .prepare(
-          'SELECT session_id, model_id, input_tokens, output_tokens, reasoning_tokens,'
-          + ' cache_creation_input_tokens, cache_read_input_tokens FROM model_usage',
+          'SELECT session_id, model_id, input_tokens, output_tokens, reasoning_tokens,' +
+            ' cache_creation_input_tokens, cache_read_input_tokens FROM model_usage',
         )
         .all()
       for (const u of uRows) {
         const cur = usageOf.get(u.session_id) || {
-          i: 0, o: 0, r: 0, cw: 0, cr: 0, byModel: new Map(),
+          i: 0,
+          o: 0,
+          r: 0,
+          cw: 0,
+          cr: 0,
+          byModel: new Map(),
         }
         cur.i += u.input_tokens || 0
         cur.o += u.output_tokens || 0
         cur.r += u.reasoning_tokens || 0
         cur.cw += u.cache_creation_input_tokens || 0
         cur.cr += u.cache_read_input_tokens || 0
-        const mTot =
-          (u.input_tokens || 0) + (u.output_tokens || 0) + (u.reasoning_tokens || 0)
+        const mTot = (u.input_tokens || 0) + (u.output_tokens || 0) + (u.reasoning_tokens || 0)
         cur.byModel.set(u.model_id, (cur.byModel.get(u.model_id) || 0) + mTot)
         usageOf.set(u.session_id, cur)
       }
@@ -622,8 +638,8 @@ function scanHermes(dbPath) {
       try {
         const t = db
           .prepare(
-            "SELECT COALESCE(SUM(CASE WHEN typeof(token_count) IN ('integer','real') THEN token_count ELSE 0 END), 0) AS tok"
-            + " FROM messages WHERE session_id = ?",
+            "SELECT COALESCE(SUM(CASE WHEN typeof(token_count) IN ('integer','real') THEN token_count ELSE 0 END), 0) AS tok" +
+              ' FROM messages WHERE session_id = ?',
           )
           .get(r.id)
         if (t && Number(t.tok) > 0) {
@@ -827,9 +843,24 @@ const ARTIFACT_MAX_FILE_BYTES = 32 * 1024 * 1024
 const ARTIFACT_WALK_CAP = 6000
 const ARTIFACT_SKIP = new Set([
   ...SKIP_DIRS,
-  '.git', 'dist', 'build', 'release', 'out', 'target', '.next', 'venv',
-  '.venv', '__pycache__', '.gradle', '.idea', '.vscode', 'coverage',
-  '.playwright-cli', '.mimosa', 'ai-chronicle', 'release2',
+  '.git',
+  'dist',
+  'build',
+  'release',
+  'out',
+  'target',
+  '.next',
+  'venv',
+  '.venv',
+  '__pycache__',
+  '.gradle',
+  '.idea',
+  '.vscode',
+  'coverage',
+  '.playwright-cli',
+  '.mimosa',
+  'ai-chronicle',
+  'release2',
 ])
 
 function listProjectFiles(root, minMs, maxMs, state) {
@@ -930,17 +961,38 @@ function attachArtifacts(sessions) {
 }
 
 // ================================================================ 缓存
+// CACHE_VERSION 需在解析逻辑变更时递增，否则旧缓存会继续返回旧的解析结果
+const CACHE_VERSION = 3
+
+// 缓存文件里含会话标题与项目路径，属于本机敏感数据。
+// 主进程会注入基于 safeStorage（系统钥匙串）的加解密实现，缓存即以密文落盘；
+// 未注入时（单元测试、纯 Node 环境）退化为明文，保证功能可用。
+// 密文容器：{ v, enc: true, data: '<base64 密文>' }
 class IngestCache {
-  constructor(cachePath) {
+  constructor(cachePath, crypto) {
     this.cachePath = cachePath
-    this.data = { v: 2, files: {} }
+    this.crypto = crypto && typeof crypto.encrypt === 'function' ? crypto : null
+    this.data = { v: CACHE_VERSION, files: {} }
     this.dirty = false
+    this.load()
+  }
+
+  load() {
+    let raw
     try {
-      const raw = fs.readFileSync(cachePath, 'utf8')
-      const parsed = JSON.parse(raw)
-      if (parsed && parsed.v === 2 && parsed.files) this.data = parsed
+      raw = fs.readFileSync(this.cachePath, 'utf8')
     } catch {
-      // 首次或版本变更后全量重扫
+      return // 首次运行
+    }
+    try {
+      let payload = JSON.parse(raw)
+      if (payload && payload.enc) {
+        if (!this.crypto) return // 没有解密能力时当作无缓存，触发全量重扫
+        payload = JSON.parse(this.crypto.decrypt(payload.data))
+      }
+      if (payload && payload.v === CACHE_VERSION && payload.files) this.data = payload
+    } catch {
+      // 版本变更、解密失败（如系统钥匙串重置）都走全量重扫
     }
   }
 
@@ -957,9 +1009,7 @@ class IngestCache {
   }
 
   trim() {
-    const entries = Object.entries(this.data.files).sort(
-      (a, b) => (b[1].m || 0) - (a[1].m || 0),
-    )
+    const entries = Object.entries(this.data.files).sort((a, b) => (b[1].m || 0) - (a[1].m || 0))
     this.data.files = Object.fromEntries(entries.slice(0, 6000))
   }
 
@@ -968,7 +1018,11 @@ class IngestCache {
     try {
       fs.mkdirSync(path.dirname(this.cachePath), { recursive: true })
       const tmp = this.cachePath + '.tmp'
-      fs.writeFileSync(tmp, JSON.stringify(this.data), 'utf8')
+      const serialized = JSON.stringify(this.data)
+      const body = this.crypto
+        ? JSON.stringify({ v: CACHE_VERSION, enc: true, data: this.crypto.encrypt(serialized) })
+        : serialized
+      fs.writeFileSync(tmp, body, 'utf8')
       fs.renameSync(tmp, this.cachePath)
       this.dirty = false
     } catch {
@@ -979,32 +1033,67 @@ class IngestCache {
 
 // ================================================================ 观察中数据源
 const OBSERVING_SOURCES = [
-  { id: 'qoder', name: 'Qoder CN', paths: ['~/.qoder-cli/ai-stats'],
-    reason: '用量记录在 IDE 内部数据库，暂无开放的会话导出' },
-  { id: 'trae', name: 'TRAE SOLO CN', paths: ['%APPDATA%/TRAE SOLO CN', '~/.trae-cn'],
-    reason: '会话数据为 SQLCipher 加密，暂无法离线解析' },
-  { id: 'cursor', name: 'Cursor', paths: ['~/.cursor'],
-    reason: '本地只有代码行统计，会话用量仅官方 API 可取' },
-  { id: 'qianwen', name: '千问', paths: ['%APPDATA%/Qianwen'],
-    reason: '桌面聊天应用，本地无会话日志' },
-  { id: 'doubao', name: '豆包', paths: ['%APPDATA%/Doubao'],
-    reason: '桌面聊天应用，本地无会话日志' },
-  { id: 'grokbot', name: 'Grok Bot', paths: ['%APPDATA%/Grok Bot'],
-    reason: '桌面聊天应用，本地无会话日志' },
-  { id: 'pidesktop', name: 'Pi Desktop', paths: ['%LOCALAPPDATA%/Programs/pi'],
-    reason: '未发现本地会话日志目录' },
-  { id: 'kimi', name: 'Kimi Code', paths: ['~/.kimi/sessions'],
-    reason: '日志未包含会话内容与用量，待适配' },
-  { id: 'cline', name: 'Cline', paths: ['~/.cline'],
-    reason: '数据为私有结构，待适配' },
-  { id: 'codexpp', name: 'Codex++', paths: ['%APPDATA%/Codex++'],
-    reason: '使用 Codex CLI 会话目录，已并入 Codex 统计' },
+  {
+    id: 'qoder',
+    name: 'Qoder CN',
+    paths: ['~/.qoder-cli/ai-stats'],
+    reason: '用量记录在 IDE 内部数据库，暂无开放的会话导出',
+  },
+  {
+    id: 'trae',
+    name: 'TRAE SOLO CN',
+    paths: ['%APPDATA%/TRAE SOLO CN', '~/.trae-cn'],
+    reason: '会话数据为 SQLCipher 加密，暂无法离线解析',
+  },
+  {
+    id: 'cursor',
+    name: 'Cursor',
+    paths: ['~/.cursor'],
+    reason: '本地只有代码行统计，会话用量仅官方 API 可取',
+  },
+  {
+    id: 'qianwen',
+    name: '千问',
+    paths: ['%APPDATA%/Qianwen'],
+    reason: '桌面聊天应用，本地无会话日志',
+  },
+  {
+    id: 'doubao',
+    name: '豆包',
+    paths: ['%APPDATA%/Doubao'],
+    reason: '桌面聊天应用，本地无会话日志',
+  },
+  {
+    id: 'grokbot',
+    name: 'Grok Bot',
+    paths: ['%APPDATA%/Grok Bot'],
+    reason: '桌面聊天应用，本地无会话日志',
+  },
+  {
+    id: 'pidesktop',
+    name: 'Pi Desktop',
+    paths: ['%LOCALAPPDATA%/Programs/pi'],
+    reason: '未发现本地会话日志目录',
+  },
+  {
+    id: 'kimi',
+    name: 'Kimi Code',
+    paths: ['~/.kimi/sessions'],
+    reason: '日志未包含会话内容与用量，待适配',
+  },
+  { id: 'cline', name: 'Cline', paths: ['~/.cline'], reason: '数据为私有结构，待适配' },
+  {
+    id: 'codexpp',
+    name: 'Codex++',
+    paths: ['%APPDATA%/Codex++'],
+    reason: '使用 Codex CLI 会话目录，已并入 Codex 统计',
+  },
 ]
 
 // ================================================================ 主入口
 async function collectAll(options = {}) {
   const cachePath = options.cachePath
-  const cache = cachePath ? new IngestCache(cachePath) : null
+  const cache = cachePath ? new IngestCache(cachePath, options.crypto) : null
   const sessions = []
   const sources = []
   const usedCache = { hit: 0, miss: 0 }
@@ -1013,10 +1102,14 @@ async function collectAll(options = {}) {
     const state = { deadline: Date.now() + SOURCE_BUDGET_MS, truncated: false }
     const roots = rootSpecs.map(expandPath)
     const exclude = opts.excludeNames
-    const files = listFiles(roots, (name, dir) => {
-      if (exclude && exclude.has(name)) return false
-      return fileFilter(name, dir)
-    }, state)
+    const files = listFiles(
+      roots,
+      (name, dir) => {
+        if (exclude && exclude.has(name)) return false
+        return fileFilter(name, dir)
+      },
+      state,
+    )
     const collected = []
     let truncated = state.truncated
     for (const f of files) {
@@ -1054,7 +1147,10 @@ async function collectAll(options = {}) {
           parent.tokensCached += item.session.tokensCached
           parent.tokensOut += item.session.tokensOut
           parent.hasTokens = parent.hasTokens || item.session.hasTokens
-          if (item.session.start !== null && (parent.start === null || item.session.start < parent.start)) {
+          if (
+            item.session.start !== null &&
+            (parent.start === null || item.session.start < parent.start)
+          ) {
             parent.start = item.session.start
           }
           if (item.session.end !== null && (parent.end === null || item.session.end > parent.end)) {
@@ -1130,8 +1226,11 @@ async function collectAll(options = {}) {
   const claudeLike = [
     { id: 'claude-code', roots: ['~/.claude/projects'] },
     { id: 'workbuddy', roots: ['~/.workbuddy/projects'] },
-    { id: 'workbuddy-ai', roots: ['~/.workbuddy-ai/projects'],
-      excludeNames: collectWorkbuddyNames() },
+    {
+      id: 'workbuddy-ai',
+      roots: ['~/.workbuddy-ai/projects'],
+      excludeNames: collectWorkbuddyNames(),
+    },
     { id: 'catpaw', roots: ['~/.catpaw/projects'] },
     { id: 'mhagent', roots: ['%APPDATA%/MHAgent/.claude/projects'] },
   ]
@@ -1147,9 +1246,14 @@ async function collectAll(options = {}) {
       sources.push(meta)
     } catch (err) {
       sources.push({
-        id: src.id, name: TOOLS[src.id].name, kind: 'connected', status: 'error',
-        sessionCount: 0, lastActivity: null,
-        detail: '解析失败: ' + String(err && err.message).slice(0, 120), note: '',
+        id: src.id,
+        name: TOOLS[src.id].name,
+        kind: 'connected',
+        status: 'error',
+        sessionCount: 0,
+        lastActivity: null,
+        detail: '解析失败: ' + String(err && err.message).slice(0, 120),
+        note: '',
       })
     }
   }
@@ -1160,8 +1264,7 @@ async function collectAll(options = {}) {
     const state = { deadline: Date.now() + SOURCE_BUDGET_MS, truncated: false }
     const files = listFiles(
       [root],
-      (name, dir) =>
-        name.endsWith('.jsonl') && dir.split(/[\\/]/).includes('projects'),
+      (name, dir) => name.endsWith('.jsonl') && dir.split(/[\\/]/).includes('projects'),
       state,
     )
     let lastActivity = null
@@ -1189,14 +1292,25 @@ async function collectAll(options = {}) {
       }
     }
     sources.push({
-      id: 'modex', name: TOOLS.modex.name, kind: 'connected', status: 'connected',
-      sessionCount: count, lastActivity, detail: '', note: '',
+      id: 'modex',
+      name: TOOLS.modex.name,
+      kind: 'connected',
+      status: 'connected',
+      sessionCount: count,
+      lastActivity,
+      detail: '',
+      note: '',
     })
   } catch (err) {
     sources.push({
-      id: 'modex', name: TOOLS.modex.name, kind: 'connected', status: 'error',
-      sessionCount: 0, lastActivity: null,
-      detail: '解析失败: ' + String(err && err.message).slice(0, 120), note: '',
+      id: 'modex',
+      name: TOOLS.modex.name,
+      kind: 'connected',
+      status: 'error',
+      sessionCount: 0,
+      lastActivity: null,
+      detail: '解析失败: ' + String(err && err.message).slice(0, 120),
+      note: '',
     })
   }
 
@@ -1212,9 +1326,14 @@ async function collectAll(options = {}) {
     sources.push(meta)
   } catch (err) {
     sources.push({
-      id: 'codex', name: 'Codex', kind: 'connected', status: 'error',
-      sessionCount: 0, lastActivity: null,
-      detail: '解析失败: ' + String(err && err.message).slice(0, 120), note: '',
+      id: 'codex',
+      name: 'Codex',
+      kind: 'connected',
+      status: 'error',
+      sessionCount: 0,
+      lastActivity: null,
+      detail: '解析失败: ' + String(err && err.message).slice(0, 120),
+      note: '',
     })
   }
 
@@ -1252,14 +1371,25 @@ async function collectAll(options = {}) {
       }
     }
     sources.push({
-      id: 'dsh', name: 'DSH', kind: 'connected', status: 'connected',
-      sessionCount: count, lastActivity, detail: '', note: '',
+      id: 'dsh',
+      name: 'DSH',
+      kind: 'connected',
+      status: 'connected',
+      sessionCount: count,
+      lastActivity,
+      detail: '',
+      note: '',
     })
   } catch (err) {
     sources.push({
-      id: 'dsh', name: 'DSH', kind: 'connected', status: 'error',
-      sessionCount: 0, lastActivity: null,
-      detail: '解析失败: ' + String(err && err.message).slice(0, 120), note: '',
+      id: 'dsh',
+      name: 'DSH',
+      kind: 'connected',
+      status: 'error',
+      sessionCount: 0,
+      lastActivity: null,
+      detail: '解析失败: ' + String(err && err.message).slice(0, 120),
+      note: '',
     })
   }
 
@@ -1282,8 +1412,14 @@ async function collectAll(options = {}) {
     const dbPath = expandPath(src.db)
     if (!fs.existsSync(dbPath)) {
       sources.push({
-        id: src.id, name: TOOLS[src.id].name, kind: 'connected', status: 'absent',
-        sessionCount: 0, lastActivity: null, detail: '未检测到本地数据库', note: '',
+        id: src.id,
+        name: TOOLS[src.id].name,
+        kind: 'connected',
+        status: 'absent',
+        sessionCount: 0,
+        lastActivity: null,
+        detail: '未检测到本地数据库',
+        note: '',
       })
       continue
     }
@@ -1295,15 +1431,25 @@ async function collectAll(options = {}) {
         if (s.end && (!lastActivity || s.end > lastActivity)) lastActivity = s.end
       }
       sources.push({
-        id: src.id, name: TOOLS[src.id].name, kind: 'connected', status: 'connected',
-        sessionCount: result.sessions.length, lastActivity,
-        detail: result.note || '', note: '',
+        id: src.id,
+        name: TOOLS[src.id].name,
+        kind: 'connected',
+        status: 'connected',
+        sessionCount: result.sessions.length,
+        lastActivity,
+        detail: result.note || '',
+        note: '',
       })
     } catch (err) {
       sources.push({
-        id: src.id, name: TOOLS[src.id].name, kind: 'connected', status: 'error',
-        sessionCount: 0, lastActivity: null,
-        detail: '解析失败: ' + String(err && err.message).slice(0, 120), note: '',
+        id: src.id,
+        name: TOOLS[src.id].name,
+        kind: 'connected',
+        status: 'error',
+        sessionCount: 0,
+        lastActivity: null,
+        detail: '解析失败: ' + String(err && err.message).slice(0, 120),
+        note: '',
       })
     }
   }
@@ -1312,10 +1458,14 @@ async function collectAll(options = {}) {
   for (const src of OBSERVING_SOURCES) {
     const detected = src.paths.some((p) => fs.existsSync(expandPath(p)))
     sources.push({
-      id: src.id, name: src.name, kind: 'observing',
+      id: src.id,
+      name: src.name,
+      kind: 'observing',
       status: detected ? 'observing' : 'absent',
-      sessionCount: 0, lastActivity: null,
-      detail: src.reason, note: '',
+      sessionCount: 0,
+      lastActivity: null,
+      detail: src.reason,
+      note: '',
     })
   }
 
@@ -1341,4 +1491,13 @@ async function collectAll(options = {}) {
   }
 }
 
-module.exports = { collectAll, TOOLS, parseClaudeLikeFile }
+// 导出纯函数供单元测试使用（解析、目录名还原、缓存加解密是最容易回归的部分）
+module.exports = {
+  collectAll,
+  TOOLS,
+  parseClaudeLikeFile,
+  decodeDirProject,
+  basenameOf,
+  IngestCache,
+  CACHE_VERSION,
+}

@@ -5,9 +5,7 @@ const { execFileSync } = require('node:child_process')
 
 const REPO = 'liixnglinb/AI-Chronicle'
 const message = process.argv[2] || 'update'
-const tag = process.argv.includes('--tag')
-  ? process.argv[process.argv.indexOf('--tag') + 1]
-  : null
+const tag = process.argv.includes('--tag') ? process.argv[process.argv.indexOf('--tag') + 1] : null
 
 function gh(path, method = 'GET', body = null) {
   const args = ['api', `repos/${REPO}/${path}`, '--method', method]
@@ -36,12 +34,18 @@ function main() {
     execFileSync('git', ['cat-file', '-e', `${baseSha}^{commit}`], { stdio: 'pipe' })
   } catch {
     diffBase = 'HEAD~1'
-    const localTree = execFileSync('git', ['rev-parse', 'HEAD~1^{tree}'], { encoding: 'utf8' }).trim()
+    const localTree = execFileSync('git', ['rev-parse', 'HEAD~1^{tree}'], {
+      encoding: 'utf8',
+    }).trim()
     if (localTree !== baseCommit.tree.sha) {
-      console.error(`⚠ 本地 HEAD~1 树 ${localTree.slice(0, 10)} != 远端树 ${baseCommit.tree.sha.slice(0, 10)}，基底不一致，中止`)
+      console.error(
+        `⚠ 本地 HEAD~1 树 ${localTree.slice(0, 10)} != 远端树 ${baseCommit.tree.sha.slice(0, 10)}，基底不一致，中止`,
+      )
       process.exit(2)
     }
-    console.log(`本地无远端对象（历史分叉），以 HEAD~1 为差异基准（树一致 ${localTree.slice(0, 10)}）`)
+    console.log(
+      `本地无远端对象（历史分叉），以 HEAD~1 为差异基准（树一致 ${localTree.slice(0, 10)}）`,
+    )
   }
   const ahead = execFileSync('git', ['diff', '--stat', diffBase, 'HEAD'], {
     encoding: 'utf8',

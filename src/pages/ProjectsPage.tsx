@@ -1,10 +1,18 @@
 import { useMemo, useState } from 'react'
-import { FolderOpen } from 'lucide-react'
+import { ChevronDown, FileText, FolderKanban, FolderOpen, Layers, Repeat } from 'lucide-react'
 import { useChronicle } from '../lib/store'
-import { dayKeyOf, formatDayLabel, formatTimeRange } from '../lib/format'
+import { dayKeyOf, formatDayLabelShort, formatTimeRange } from '../lib/format'
+import { useIncrementalList } from '../lib/useIncrementalList'
 import { SessionRow } from '../components/SessionRow'
 import { ToolDot } from '../components/ToolDot'
+import { PageHeader } from '../components/PageHeader'
+import { EmptyState, DesktopOnlyPage } from '../components/EmptyState'
+import { SummaryStrip } from '../components/SummaryStrip'
+import { LoadMore } from '../components/Progress'
+import { SkeletonPage } from '../components/Skeleton'
+import { classNames } from '../lib/utils'
 import type { SessionRecord, ToastMessage } from '../types'
+import { ICON_SIZE } from '../lib/ui'
 
 interface ProjectsPageProps {
   searchQuery: string
@@ -22,8 +30,21 @@ interface ProjectGroup {
   turns: number
   artifacts: number
   lastActive: number
+  todayCount: number
   tools: { name: string; color: string }[]
 }
+
+const RANGE_OPTIONS: Array<[string, string]> = [
+  ['0', '全部时间'],
+  ['30', '近 30 天'],
+  ['7', '近 7 天'],
+]
+
+const SORT_OPTIONS: Array<[ProjectSort, string]> = [
+  ['recent', '最近'],
+  ['sessions', '会话'],
+  ['artifacts', '产出'],
+]
 
 export function ProjectsPage({ searchQuery, onToast }: ProjectsPageProps) {
   const { data, loading, isDesktop } = useChronicle()
@@ -45,6 +66,7 @@ export function ProjectsPage({ searchQuery, onToast }: ProjectsPageProps) {
   const projects = useMemo<ProjectGroup[]>(() => {
     const query = searchQuery.trim().toLowerCase()
     const minTime = range ? Date.now() - range * 86_400_000 : 0
+    const todayKey = dayKeyOf(Date.now())
     const map = new Map<string, ProjectGroup>()
 
     for (const s of data?.sessions ?? []) {
@@ -71,6 +93,7 @@ export function ProjectsPage({ searchQuery, onToast }: ProjectsPageProps) {
           turns: 0,
           artifacts: 0,
           lastActive: 0,
+          todayCount: 0,
           tools: [],
         }
         map.set(key, group)
@@ -78,6 +101,7 @@ export function ProjectsPage({ searchQuery, onToast }: ProjectsPageProps) {
       group.sessions.push(s)
       group.turns += s.turns
       group.artifacts += (s.artifacts ?? []).length
+      if (s.start && dayKeyOf(s.start) === todayKey) group.todayCount += 1
       const end = s.end || s.start || 0
       if (end > group.lastActive) group.lastActive = end
       if (!group.tools.some((t) => t.name === s.toolName)) {
@@ -94,6 +118,18 @@ export function ProjectsPage({ searchQuery, onToast }: ProjectsPageProps) {
 
   const totalArtifacts = projects.reduce((sum, p) => sum + p.artifacts, 0)
   const totalTurns = projects.reduce((sum, p) => sum + p.turns, 0)
+  const activeToday = projects.filter((p) => p.todayCount > 0).length
+
+  // 项目集可能有上百个卡片，首屏只渲染前 30 个，其余按需追加
+  const {
+    visibleItems: visibleProjects,
+    hasMore,
+    remaining,
+    loadMore,
+  } = useIncrementalList(projects, {
+    pageSize: 30,
+    resetKey: `${range}|${toolFilter}|${sort}|${searchQuery}`,
+  })
 
   async function openProjectFolder(path: string) {
     if (path === '(未知位置)') return
@@ -108,41 +144,64 @@ export function ProjectsPage({ searchQuery, onToast }: ProjectsPageProps) {
   }
 
   if (!isDesktop) {
-    return (
-      <div className="page">
-        <div className="empty-state">
-          <strong>需要桌面版</strong>
-          <span>项目集按本机会话日志中的工作目录聚合。</span>
-        </div>
-      </div>
-    )
+    return <DesktopOnlyPage title="项目集" description="项目集按本机会话日志中的工作目录聚合。" />
   }
 
   return (
     <div className="page">
-      <div className="page-heading">
-        <div>
-          <span className="page-kicker">
-            {projects.length
-              ? `${projects.length} 个项目 · ${totalTurns} 轮协作 · ${totalArtifacts} 个产出`
-              : '项目来自会话日志中的真实工作目录'}
-          </span>
-          <strong>项目集</strong>
-        </div>
-      </div>
+      <PageHeader
+        kicker={
+          projects.length
+            ? `${projects.length} 个项目 · ${totalTurns} 轮协作 · ${totalArtifacts} 个产出`
+            : '项目来自会话日志中的真实工作目录'
+        }
+        title="项目集"
+      />
+
+      {data && projects.length > 0 && (
+        <SummaryStrip
+          items={[
+            {
+              key: 'projects',
+              label: '项目总数',
+              value: projects.length,
+              icon: <FolderKanban size={ICON_SIZE.sm} />,
+              tone: 'primary',
+            },
+            {
+              key: 'today',
+              label: '今日有活动',
+              value: activeToday,
+              icon: <Layers size={ICON_SIZE.sm} />,
+              tone: activeToday > 0 ? 'positive' : 'default',
+            },
+            {
+              key: 'turns',
+              label: '协作轮次',
+              value: totalTurns,
+              icon: <Repeat size={ICON_SIZE.sm} />,
+            },
+            {
+              key: 'artifacts',
+              label: '产出文件',
+              value: totalArtifacts,
+              icon: <FileText size={ICON_SIZE.sm} />,
+            },
+          ]}
+        />
+      )}
 
       <div className="collection-toolbar">
         <div className="filter-chip-scroll">
-          {([
-            ['all', '全部时间'],
-            ['30', '近 30 天'],
-            ['7', '近 7 天'],
-          ] as Array<[string, string]>).map(([value, label]) => (
+          {RANGE_OPTIONS.map(([value, label]) => (
             <button
               key={value}
               type="button"
-              className={range.toString() === value ? 'filter-chip filter-chip-active' : 'filter-chip'}
-              onClick={() => setRange(value === 'all' ? 0 : (Number(value) as ProjectRange))}
+              className={classNames(
+                'filter-chip',
+                range.toString() === value && 'filter-chip-active',
+              )}
+              onClick={() => setRange((value === '0' ? 0 : Number(value)) as ProjectRange)}
             >
               {label}
             </button>
@@ -151,7 +210,7 @@ export function ProjectsPage({ searchQuery, onToast }: ProjectsPageProps) {
         <div className="filter-chip-scroll">
           <button
             type="button"
-            className={toolFilter === 'all' ? 'filter-chip filter-chip-active' : 'filter-chip'}
+            className={classNames('filter-chip', toolFilter === 'all' && 'filter-chip-active')}
             onClick={() => setToolFilter('all')}
           >
             全部软件
@@ -160,7 +219,10 @@ export function ProjectsPage({ searchQuery, onToast }: ProjectsPageProps) {
             <button
               key={tool.name}
               type="button"
-              className={toolFilter === tool.name ? 'filter-chip filter-chip-active' : 'filter-chip'}
+              className={classNames(
+                'filter-chip',
+                toolFilter === tool.name && 'filter-chip-active',
+              )}
               onClick={() => setToolFilter(tool.name)}
             >
               <span className="tool-dot" style={{ ['--tool-color' as string]: tool.color }} />
@@ -169,15 +231,11 @@ export function ProjectsPage({ searchQuery, onToast }: ProjectsPageProps) {
           ))}
         </div>
         <div className="segmented-control" aria-label="排序方式">
-          {([
-            ['recent', '最近'],
-            ['sessions', '会话'],
-            ['artifacts', '产出'],
-          ] as Array<[ProjectSort, string]>).map(([value, label]) => (
+          {SORT_OPTIONS.map(([value, label]) => (
             <button
               key={value}
               type="button"
-              className={sort === value ? 'segmented-active' : undefined}
+              className={classNames(sort === value && 'segmented-active')}
               onClick={() => setSort(value)}
             >
               {label}
@@ -186,38 +244,34 @@ export function ProjectsPage({ searchQuery, onToast }: ProjectsPageProps) {
         </div>
       </div>
 
-      {loading && !data && (
-        <div className="page-loading">
-          <span />
-          正在读取本机 AI 会话日志…
-        </div>
-      )}
+      {loading && !data && <SkeletonPage cells={4} rows={5} />}
 
       {data && projects.length === 0 && (
-        <div className="empty-state">
-          <strong>没有匹配的项目</strong>
-          <span>调整时间范围、软件筛选或顶部搜索词后重试。</span>
-        </div>
+        <EmptyState
+          title="没有匹配的项目"
+          description="调整时间范围、软件筛选或顶部搜索词后重试。"
+        />
       )}
 
       <div className="project-list">
-        {projects.map((project) => {
+        {visibleProjects.map((project) => {
           const open = openProject === project.key
-          const todayKey = dayKeyOf(Date.now())
-          const todayCount = project.sessions.filter(
-            (s) => s.start && dayKeyOf(s.start) === todayKey,
-          ).length
-
           return (
-            <div className={open ? 'project-card open' : 'project-card'} key={project.key}>
+            <div
+              className={classNames('project-card', 'list-item-enter', open && 'open')}
+              key={project.key}
+            >
               <div className="project-card-head">
                 <button
                   type="button"
                   className="project-card-main"
                   onClick={() => setOpenProject(open ? null : project.key)}
+                  aria-expanded={open}
                 >
                   <strong>{project.name}</strong>
-                  <span className="project-card-path">{project.path}</span>
+                  <span className="project-card-path" title={project.path}>
+                    {project.path}
+                  </span>
                 </button>
                 <button
                   type="button"
@@ -226,16 +280,27 @@ export function ProjectsPage({ searchQuery, onToast }: ProjectsPageProps) {
                   title="打开项目目录"
                   aria-label={`打开项目目录：${project.name}`}
                 >
-                  <FolderOpen size={16} />
+                  <FolderOpen size={ICON_SIZE.sm} />
+                </button>
+                <button
+                  type="button"
+                  className="icon-button project-card-chevron"
+                  onClick={() => setOpenProject(open ? null : project.key)}
+                  title={open ? '收起会话' : '展开会话'}
+                  aria-label={open ? `收起 ${project.name} 的会话` : `展开 ${project.name} 的会话`}
+                >
+                  <ChevronDown size={ICON_SIZE.sm} className={classNames(open && 'chevron-open')} />
                 </button>
               </div>
               <div className="project-card-meta">
                 <span>{project.sessions.length} 会话</span>
                 <span>{project.turns} 轮</span>
                 {project.artifacts > 0 && <span>{project.artifacts} 产出</span>}
-                {todayCount > 0 && <span className="project-today">今天 {todayCount}</span>}
+                {project.todayCount > 0 && (
+                  <span className="project-today">今天 {project.todayCount}</span>
+                )}
                 <span className="project-last">
-                  最近 {formatDayLabel(dayKeyOf(project.lastActive))}
+                  最近 {formatDayLabelShort(dayKeyOf(project.lastActive))}
                 </span>
               </div>
               <div className="project-card-tools">
@@ -267,6 +332,8 @@ export function ProjectsPage({ searchQuery, onToast }: ProjectsPageProps) {
           )
         })}
       </div>
+
+      {hasMore && <LoadMore noun="项目" remaining={remaining} onClick={loadMore} />}
     </div>
   )
 }

@@ -1,24 +1,30 @@
 import { useMemo, useState } from 'react'
-import { FolderOpen } from 'lucide-react'
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts'
+import { Cpu, Flame, FolderKanban, FolderOpen, Timer } from 'lucide-react'
+import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { useChronicle } from '../lib/store'
-import { dayKeyOf, formatDayLabel, formatDuration, sessionDurationMinutes } from '../lib/format'
-import { ToolDot } from '../components/ToolDot'
+import {
+  dayKeyOf,
+  formatDayLabelShort,
+  formatDuration,
+  sessionDurationMinutes,
+  shortenPath,
+} from '../lib/format'
+import { PageHeader } from '../components/PageHeader'
+import { EmptyState, DesktopOnlyPage } from '../components/EmptyState'
+import { SkeletonPage } from '../components/Skeleton'
+import { SummaryStrip } from '../components/SummaryStrip'
+import { ChartTooltip } from '../components/ChartTooltip'
+import { classNames } from '../lib/utils'
 import type { SessionRecord, ToastMessage } from '../types'
+import { ICON_SIZE } from '../lib/ui'
 
 interface InsightsPageProps {
   onToast: (toast: Omit<ToastMessage, 'id'>) => void
 }
 
 type InsightRange = 7 | 14 | 30
+
+const RANGE_OPTIONS: InsightRange[] = [7, 14, 30]
 
 interface MetricGroup {
   key: string
@@ -89,6 +95,9 @@ export function InsightsPage({ onToast }: InsightsPageProps) {
     }
   }, [sessions])
 
+  // 项目分组名默认是完整路径，列表里改为末两段，避免出现超长绝对路径
+  const projectLabel = (name: string) => (name === '(未知位置)' ? name : shortenPath(name))
+
   const daily = useMemo(() => {
     const map = new Map<string, { sessions: number; turns: number; artifacts: number }>()
     for (const session of sessions) {
@@ -126,7 +135,6 @@ export function InsightsPage({ onToast }: InsightsPageProps) {
   const busiestDay = [...daily].sort((a, b) => b.turns - a.turns)[0]
   const topProject = groups.projects[0]
   const topTool = groups.tools[0]
-  const topToolColor = topTool?.color ?? 'var(--primary)'
 
   async function openFolder(path?: string) {
     if (!path || path === '(未知位置)') return
@@ -142,120 +150,128 @@ export function InsightsPage({ onToast }: InsightsPageProps) {
 
   if (!isDesktop) {
     return (
-      <div className="page">
-        <div className="empty-state">
-          <strong>需要桌面版</strong>
-          <span>分析基于本机真实会话日志计算，浏览器预览无法读取。</span>
-        </div>
-      </div>
+      <DesktopOnlyPage
+        title="分析"
+        description="分析基于本机真实会话日志计算，浏览器预览无法读取。"
+      />
     )
   }
 
   return (
     <div className="page">
-      <div className="page-heading">
-        <div>
-          <span className="page-kicker">
-            {sessions.length
-              ? `近 ${range} 天 · ${totals.days} 个活跃日 · ${totals.turns} 轮 · ${totals.artifacts} 个产出`
-              : '选择周期查看真实工作投入'}
-          </span>
-          <strong>分析</strong>
-        </div>
-        <div className="heading-actions">
+      <PageHeader
+        kicker={
+          sessions.length
+            ? `近 ${range} 天 · ${totals.days} 个活跃日 · ${totals.turns} 轮 · ${totals.artifacts} 个产出`
+            : '选择周期查看真实工作投入'
+        }
+        title="分析"
+        actions={
           <div className="segmented-control" aria-label="分析周期">
-            {([7, 14, 30] as InsightRange[]).map((value) => (
+            {RANGE_OPTIONS.map((value) => (
               <button
                 key={value}
                 type="button"
-                className={range === value ? 'segmented-active' : undefined}
+                className={classNames(range === value && 'segmented-active')}
                 onClick={() => setRange(value)}
               >
                 {value} 天
               </button>
             ))}
           </div>
-        </div>
-      </div>
+        }
+      />
 
-      {loading && !data && (
-        <div className="page-loading">
-          <span />
-          正在读取本机 AI 会话日志…
-        </div>
-      )}
+      {loading && !data && <SkeletonPage cells={4} rows={3} />}
 
       {data && sessions.length === 0 && (
-        <div className="empty-state">
-          <strong>所选周期没有会话</strong>
-          <span>切换到 30 天，或产生新会话后重新采集。</span>
-        </div>
+        <EmptyState title="所选周期没有会话" description="切换到 30 天，或产生新会话后重新采集。" />
       )}
 
       {sessions.length > 0 && (
         <>
-          <div className="insight-summary">
-            <article>
-              <span className="insight-icon insight-icon-green">
-                <ToolDot color={topToolColor} name={topTool?.name ?? ''} />
-              </span>
-              <div>
-                <small>主力软件</small>
-                <strong>{topTool?.name ?? '—'}</strong>
-              </div>
-            </article>
-            <article>
-              <span className="insight-icon insight-icon-blue">
-                <span className="tool-dot" style={{ ['--tool-color' as string]: 'var(--primary)' }} />
-              </span>
-              <div>
-                <small>重点投入</small>
-                <strong>{topProject?.name ?? '—'}</strong>
-              </div>
-            </article>
-            <article>
-              <span className="insight-icon insight-icon-amber">
-                <span className="tool-dot" style={{ ['--tool-color' as string]: 'var(--amber)' }} />
-              </span>
-              <div>
-                <small>最忙一天</small>
-                <strong>{busiestDay ? formatDayLabel(busiestDay.day) : '—'}</strong>
-              </div>
-            </article>
-            <article>
-              <span className="insight-icon insight-icon-coral">
-                <span className="tool-dot" style={{ ['--tool-color' as string]: 'var(--coral)' }} />
-              </span>
-              <div>
-                <small>总工作跨度</small>
-                <strong>{formatDuration(totals.minutes) || '—'}</strong>
-              </div>
-            </article>
-          </div>
+          <SummaryStrip
+            items={[
+              {
+                key: 'tool',
+                label: '主力软件',
+                value: topTool?.name ?? '—',
+                hint: topTool ? `${topTool.sessions} 会话 · ${topTool.turns} 轮` : undefined,
+                icon: <Cpu size={ICON_SIZE.sm} />,
+                tone: 'primary',
+              },
+              {
+                key: 'project',
+                label: '重点投入',
+                value: topProject?.name ?? '—',
+                hint: topProject
+                  ? `${topProject.turns} 轮 · ${topProject.artifacts} 个产出`
+                  : undefined,
+                icon: <FolderKanban size={ICON_SIZE.sm} />,
+                tone: 'info',
+              },
+              {
+                key: 'busiest',
+                label: '最忙一天',
+                value:
+                  busiestDay && busiestDay.turns > 0 ? formatDayLabelShort(busiestDay.day) : '—',
+                hint: busiestDay && busiestDay.turns > 0 ? `${busiestDay.turns} 轮对话` : undefined,
+                icon: <Flame size={ICON_SIZE.sm} />,
+                tone: 'warning',
+                compact: true,
+              },
+              {
+                key: 'span',
+                label: '累计工作时长',
+                value: formatDuration(totals.minutes) || '—',
+                hint: `${totals.days} 个活跃日`,
+                icon: <Timer size={ICON_SIZE.sm} />,
+                tone: 'positive',
+                compact: true,
+              },
+            ]}
+          />
 
           <div className="insights-grid-real">
-            <section className="chart-panel">
+            <section className="chart-panel chart-panel-wide">
               <div className="section-title-row">
                 <span className="eyebrow">每日节奏</span>
-                <span className="result-count">会话 / 轮次 / 产出</span>
+                <span className="result-count">柱高 = 当日会话数 · 悬停查看轮次与产出</span>
               </div>
               <div className="chart-box">
-                <ResponsiveContainer width="100%" height={260}>
-                  <BarChart data={daily} margin={{ left: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border-subtle)" />
-                    <XAxis dataKey="label" fontSize={10} tickLine={false} />
-                    <YAxis allowDecimals={false} fontSize={11} width={32} />
-                    <Tooltip
-                      formatter={(value, _name, entry) => {
-                        const payload = (entry as { payload?: { turns?: number; artifacts?: number } })?.payload
-                        return [
-                          `${value} 个会话 · ${payload?.turns ?? 0} 轮 · 产出 ${payload?.artifacts ?? 0}`,
-                          '',
-                        ] as [string, string]
-                      }}
-                      contentStyle={{ fontSize: 12 }}
+                <ResponsiveContainer width="100%" height={240}>
+                  <BarChart data={daily} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      vertical={false}
+                      stroke="var(--border-subtle)"
                     />
-                    <Bar dataKey="sessions" fill="var(--primary)" radius={[4, 4, 0, 0]} />
+                    <XAxis
+                      dataKey="label"
+                      tickLine={false}
+                      axisLine={false}
+                      interval="preserveStartEnd"
+                    />
+                    <YAxis allowDecimals={false} width={32} tickLine={false} axisLine={false} />
+                    <Tooltip
+                      cursor={{ fill: 'color-mix(in srgb, var(--primary) 8%, transparent)' }}
+                      content={
+                        <ChartTooltip
+                          rows={(point) => [
+                            { label: '会话', value: Number(point?.sessions ?? 0) },
+                            { label: '轮次', value: Number(point?.turns ?? 0) },
+                            { label: '产出', value: Number(point?.artifacts ?? 0) },
+                          ]}
+                        />
+                      }
+                    />
+                    <Bar
+                      dataKey="sessions"
+                      fill="var(--primary)"
+                      radius={[4, 4, 0, 0]}
+                      maxBarSize={26}
+                      isAnimationActive={false}
+                    />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -264,7 +280,7 @@ export function InsightsPage({ onToast }: InsightsPageProps) {
             <section className="chart-panel">
               <div className="section-title-row">
                 <span className="eyebrow">软件投入</span>
-                <span className="result-count">按轮次排序</span>
+                <span className="result-count">按轮次占比排序</span>
               </div>
               <div className="contribution-list">
                 {groups.tools.map((tool) => {
@@ -272,15 +288,25 @@ export function InsightsPage({ onToast }: InsightsPageProps) {
                   return (
                     <div className="contribution-row" key={tool.key}>
                       <div className="contribution-name">
-                        <ToolDot color={tool.color ?? 'var(--primary)'} name={tool.name} />
-                        <span>{tool.name}</span>
+                        <span
+                          className="tool-dot"
+                          style={{ ['--tool-color' as string]: tool.color ?? 'var(--primary)' }}
+                        />
+                        <span title={tool.name}>{tool.name}</span>
                       </div>
                       <div className="contribution-value">
-                        <span>{tool.sessions} 会话</span>
+                        <span>
+                          {tool.sessions} 会话 · {tool.turns} 轮
+                        </span>
                         <strong>{percent}%</strong>
                       </div>
                       <div className="contribution-track">
-                        <span style={{ width: `${Math.max(2, percent)}%`, background: tool.color }} />
+                        <span
+                          style={{
+                            width: `${Math.max(2, percent)}%`,
+                            background: tool.color ?? 'var(--primary)',
+                          }}
+                        />
                       </div>
                     </div>
                   )
@@ -298,10 +324,10 @@ export function InsightsPage({ onToast }: InsightsPageProps) {
                   <div className="collection-row" key={project.key}>
                     <span className="collection-index">{index + 1}</span>
                     <div className="collection-copy">
-                      <strong>{project.name}</strong>
+                      <strong title={project.name}>{projectLabel(project.name)}</strong>
                       <small>
                         {project.sessions} 会话 · {project.turns} 轮 · {project.artifacts} 产出 ·{' '}
-                        {formatDuration(project.minutes)}
+                        {formatDuration(project.minutes) || '跨度不足 1 分钟'}
                       </small>
                     </div>
                     <button
@@ -311,7 +337,7 @@ export function InsightsPage({ onToast }: InsightsPageProps) {
                       title="打开项目目录"
                       aria-label={`打开项目目录：${project.name}`}
                     >
-                      <FolderOpen size={16} />
+                      <FolderOpen size={ICON_SIZE.sm} />
                     </button>
                   </div>
                 ))}

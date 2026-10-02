@@ -7,7 +7,9 @@ const readline = require('node:readline')
 
 const HOME = os.homedir()
 const target = path.join(
-  HOME, '.catpaw', 'projects',
+  HOME,
+  '.catpaw',
+  'projects',
   'C--Users------meituan-catpaw-3375670534-desk-default-workspace',
   'ef3e611f-8ab3-4d31-93dc-590a30cb9c53.jsonl',
 )
@@ -34,7 +36,9 @@ async function main() {
     const parts = Array.isArray(m.content) ? m.content : []
     const kinds = parts.map((c) => c && c.type).join(',')
     const texts = parts
-      .filter((c) => c && (c.type === 'text' || c.type === 'input_text') && typeof c.text === 'string')
+      .filter(
+        (c) => c && (c.type === 'text' || c.type === 'input_text') && typeof c.text === 'string',
+      )
       .map((c) => String(c.text).replace(/\s+/g, ' ').slice(0, 70))
     console.log(`user#${userIdx} [${kinds}]`, JSON.stringify(texts))
   }
@@ -48,7 +52,13 @@ async function main() {
   const hermes = result.sessions.filter((s) => s.tool === 'hermes').slice(0, 4)
   console.log('--- hermes 采集样例 ---')
   for (const s of hermes) {
-    console.log(JSON.stringify({ title: s.title, turns: s.turns, start: s.start, project: s.project }, null, 0))
+    console.log(
+      JSON.stringify(
+        { title: s.title, turns: s.turns, start: s.start, project: s.project },
+        null,
+        0,
+      ),
+    )
   }
   const hermesSrc = result.sources.find((x) => x.id === 'hermes')
   console.log('hermes 源状态:', JSON.stringify(hermesSrc))

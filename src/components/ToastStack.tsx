@@ -1,5 +1,6 @@
 import { CheckCircle2, Info, TriangleAlert, X } from 'lucide-react'
 import type { ToastMessage } from '../types'
+import { ICON_SIZE } from '../lib/ui'
 
 interface ToastStackProps {
   toasts: ToastMessage[]
@@ -20,7 +21,7 @@ export function ToastStack({ toasts, onDismiss }: ToastStackProps) {
         return (
           <div className={`toast toast-${toast.tone}`} key={toast.id}>
             <span className="toast-icon">
-              <Icon size={17} />
+              <Icon size={ICON_SIZE.sm} />
             </span>
             <span className="toast-copy">
               <strong>{toast.title}</strong>
@@ -33,7 +34,7 @@ export function ToastStack({ toasts, onDismiss }: ToastStackProps) {
               title="关闭通知"
               aria-label="关闭通知"
             >
-              <X size={14} />
+              <X size={ICON_SIZE.xs} />
             </button>
           </div>
         )

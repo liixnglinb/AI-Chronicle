@@ -42,7 +42,9 @@ if (wbFile) {
       const o = JSON.parse(l)
       const k = o.type + (o.isSidechain ? '/side' : '')
       types[k] = (types[k] || 0) + 1
-    } catch { types.BAD = (types.BAD || 0) + 1 }
+    } catch {
+      types.BAD = (types.BAD || 0) + 1
+    }
   }
   console.log('workbuddy 类型分布(前400行):', JSON.stringify(types))
   const userLine = lines.find((l) => l.includes('"user"'))
@@ -72,7 +74,9 @@ if (cpFile) {
     try {
       const o = JSON.parse(l)
       types[o.type] = (types[o.type] || 0) + 1
-    } catch { types.BAD = (types.BAD || 0) + 1 }
+    } catch {
+      types.BAD = (types.BAD || 0) + 1
+    }
   }
   console.log('catpaw 类型分布(前300行):', JSON.stringify(types))
   const u = lines.find((l) => l.includes('"type": "user"') || l.includes('"type":"user"'))
@@ -87,9 +91,15 @@ const hermesDb = path.join(HOME, '.hermes', 'state.db')
   console.log('== hermes 最新会话:', sess.id)
   const cnt = db.prepare('SELECT COUNT(*) n FROM messages WHERE session_id = ?').get(sess.id)
   console.log('hermes 该会话消息数:', cnt.n)
-  const roles = db.prepare('SELECT role, COUNT(*) n FROM messages WHERE session_id = ? GROUP BY role').all(sess.id)
+  const roles = db
+    .prepare('SELECT role, COUNT(*) n FROM messages WHERE session_id = ? GROUP BY role')
+    .all(sess.id)
   console.log('hermes 角色分布:', JSON.stringify(roles))
-  const u = db.prepare("SELECT content FROM messages WHERE session_id = ? AND role='user' ORDER BY timestamp LIMIT 1").get(sess.id)
+  const u = db
+    .prepare(
+      "SELECT content FROM messages WHERE session_id = ? AND role='user' ORDER BY timestamp LIMIT 1",
+    )
+    .get(sess.id)
   console.log('hermes 首条用户消息:', u ? String(u.content).slice(0, 200) : '无')
   db.close()
 }
@@ -123,7 +133,10 @@ const idsSess = new Set()
 const idsArch = new Set()
 const sessRoot = path.join(HOME, '.codex', 'sessions')
 const archRoot = path.join(HOME, '.codex', 'archived_sessions')
-for (const [root, set] of [[sessRoot, idsSess], [archRoot, idsArch]]) {
+for (const [root, set] of [
+  [sessRoot, idsSess],
+  [archRoot, idsArch],
+]) {
   const walk = (d) => {
     for (const e of fs.readdirSync(d, { withFileTypes: true })) {
       const f = path.join(d, e.name)

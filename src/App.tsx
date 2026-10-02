@@ -4,6 +4,7 @@ import { CommandPalette } from './components/CommandPalette'
 import { ToastStack } from './components/ToastStack'
 import { UpdateBadge } from './components/UpdateBadge'
 import { ChronicleProvider } from './lib/store'
+import { applyTheme, getInitialTheme, type ThemeName } from './lib/theme'
 import { navItems } from './data/nav'
 import type { ToastMessage, ViewId } from './types'
 import './App.css'
@@ -33,15 +34,6 @@ const SettingsPage = lazy(() =>
   import('./pages/SettingsPage').then((module) => ({ default: module.SettingsPage })),
 )
 
-function getInitialTheme(): 'light' | 'dark' {
-  const param = new URLSearchParams(window.location.search).get('theme')
-  if (param === 'light' || param === 'dark') return param
-  const stored = window.localStorage.getItem('ai-chronicle-theme')
-  if (stored === 'light' || stored === 'dark') return stored
-  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
-}
-
-// 支持 ?view=xxx 直达某个页面（截图自检 / 深链）
 function getInitialView(): ViewId {
   const param = new URLSearchParams(window.location.search).get('view')
   if (param && navItems.some((item) => item.id === param)) {
@@ -52,7 +44,7 @@ function getInitialView(): ViewId {
 
 function App() {
   const [activeView, setActiveView] = useState<ViewId>(getInitialView)
-  const [theme, setTheme] = useState<'light' | 'dark'>(getInitialTheme)
+  const [theme, setTheme] = useState<ThemeName>(getInitialTheme)
   const [commandOpen, setCommandOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [toasts, setToasts] = useState<ToastMessage[]>([])
@@ -66,15 +58,33 @@ function App() {
   }, [])
 
   useEffect(() => {
-    document.documentElement.dataset.theme = theme
-    window.localStorage.setItem('ai-chronicle-theme', theme)
+    applyTheme(theme)
   }, [theme])
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
+      const target = event.target as HTMLElement | null
+      const typing =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target?.isContentEditable === true
+
+      // ⌘/Ctrl + K：命令面板（可搜全部会话）
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault()
         setCommandOpen((open) => !open)
+        return
+      }
+
+      // 「/」：把焦点送到顶栏搜索框，与常见工具型软件一致。
+      // 正在输入时不拦截，否则无法在输入框里打斜杠。
+      if (event.key === '/' && !typing && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        const search = document.querySelector<HTMLInputElement>('.global-search input')
+        if (search) {
+          event.preventDefault()
+          search.focus()
+          search.select()
+        }
       }
     }
 
@@ -144,13 +154,7 @@ function App() {
       case 'sources':
         return <SourcesPage onToast={pushToast} />
       case 'settings':
-        return (
-          <SettingsPage
-            theme={theme}
-            onThemeChange={setTheme}
-            onToast={pushToast}
-          />
-        )
+        return <SettingsPage theme={theme} onThemeChange={setTheme} onToast={pushToast} />
       case 'today':
       default:
         return <TodayPage searchQuery={searchQuery} onToast={pushToast} />
@@ -166,15 +170,13 @@ function App() {
         onNavigate={navigate}
         onOpenCommand={() => setCommandOpen(true)}
         onSearchChange={setSearchQuery}
-        onThemeToggle={() =>
-          setTheme((current) => (current === 'light' ? 'dark' : 'light'))
-        }
+        onThemeToggle={() => setTheme((current) => (current === 'light' ? 'dark' : 'light'))}
         onToast={pushToast}
       >
         <Suspense
           fallback={
-            <div className="page-loading">
-              <span />
+            <div className="page-loading" role="status">
+              <span className="spinner" />
               正在准备本地视图
             </div>
           }
@@ -188,9 +190,7 @@ function App() {
         <CommandPalette
           onClose={() => setCommandOpen(false)}
           onNavigate={navigate}
-          onThemeToggle={() =>
-            setTheme((current) => (current === 'light' ? 'dark' : 'light'))
-          }
+          onThemeToggle={() => setTheme((current) => (current === 'light' ? 'dark' : 'light'))}
           onAction={pushToast}
         />
       )}

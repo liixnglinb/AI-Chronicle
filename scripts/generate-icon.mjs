@@ -7,24 +7,26 @@ const root = process.cwd()
 const buildDirectory = path.join(root, 'build')
 const sourceIcon = path.join(root, 'public', 'favicon.svg')
 const pngPath = path.join(buildDirectory, 'icon.png')
+const trayPath = path.join(buildDirectory, 'tray.png')
 const icoPath = path.join(buildDirectory, 'icon.ico')
 
 // 高清渲染：先以 1024px 栅格化，再用 lanczos3 降采样 + 适度锐化，
-// 保证 16/32px 小尺寸下星芒与轨迹边缘干净不发糊。
+// 保证 16/32px 小尺寸下轨道与节点边缘干净不发糊。
 const MASTER = 1024
 const ICO_SIZES = [16, 24, 32, 48, 64, 128, 256]
 
 await fs.mkdir(buildDirectory, { recursive: true })
 
-const master = await sharp(sourceIcon, { density: 1200 })
-  .resize(MASTER, MASTER)
-  .png()
-  .toBuffer()
+const master = await sharp(sourceIcon, { density: 1200 }).resize(MASTER, MASTER).png().toBuffer()
 
+await sharp(master).resize(512, 512, { kernel: 'lanczos3' }).png().toFile(pngPath)
+// 托盘单独提供 32px PNG：Windows 隐藏图标区优先读取这个透明度/尺寸明确的资源，
+// 不依赖 ICO 解码器在不同系统缩放下临时挑选图层。
 await sharp(master)
-  .resize(512, 512, { kernel: 'lanczos3' })
+  .resize(32, 32, { kernel: 'lanczos3' })
+  .sharpen({ sigma: 0.6, m1: 0.4, m2: 1.2 })
   .png()
-  .toFile(pngPath)
+  .toFile(trayPath)
 
 const sized = []
 for (const size of ICO_SIZES) {
@@ -40,4 +42,5 @@ const ico = await pngToIco(sized)
 await fs.writeFile(icoPath, ico)
 
 console.log(`Generated ${pngPath} (512px, lanczos3)`)
+console.log(`Generated ${trayPath} (32px, sharpened)`)
 console.log(`Generated ${icoPath} (${ICO_SIZES.join('/')}, sharpened)`)

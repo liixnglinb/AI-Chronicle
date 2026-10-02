@@ -1,8 +1,24 @@
 import { useState } from 'react'
-import { RefreshCw, ShieldCheck } from 'lucide-react'
+import {
+  FileClock,
+  FolderCheck,
+  MessageSquare,
+  RadioTower,
+  RefreshCw,
+  ShieldCheck,
+} from 'lucide-react'
 import { useChronicle } from '../lib/store'
 import { formatClock } from '../lib/format'
+import { PageHeader } from '../components/PageHeader'
+import { EmptyState, DesktopOnlyPage } from '../components/EmptyState'
+import { SummaryStrip } from '../components/SummaryStrip'
+import { Badge } from '../components/Badge'
+import { Button } from '../components/Button'
+import { ConfirmDialog } from '../components/Modal'
+import { SkeletonPage } from '../components/Skeleton'
+import { classNames } from '../lib/utils'
 import type { ToastMessage } from '../types'
+import { ICON_SIZE } from '../lib/ui'
 
 const STATUS_TEXT: Record<string, string> = {
   connected: '已接入',
@@ -23,9 +39,11 @@ interface SourcesPageProps {
 }
 
 export function SourcesPage({ onToast }: SourcesPageProps) {
-  const { data, loading, refresh } = useChronicle()
+  const { data, loading, isDesktop, refresh } = useChronicle()
   const [scanning, setScanning] = useState(false)
   const [scanResult, setScanResult] = useState<ScanSourceResult[] | null>(null)
+  const [confirmRescan, setConfirmRescan] = useState(false)
+  const [rescanning, setRescanning] = useState(false)
 
   const scanMap = new Map((scanResult ?? []).map((source) => [source.id, source]))
   const filesToday = (scanResult ?? []).reduce((sum, source) => sum + source.filesToday, 0)
@@ -50,68 +68,104 @@ export function SourcesPage({ onToast }: SourcesPageProps) {
     }
   }
 
+  async function runRescan() {
+    setRescanning(true)
+    try {
+      await refresh(true)
+      setConfirmRescan(false)
+      onToast({
+        tone: 'success',
+        title: '已重新采集',
+        message: '全部接入来源已按最新文件重新解析。',
+      })
+    } finally {
+      setRescanning(false)
+    }
+  }
+
+  if (!isDesktop) {
+    return (
+      <DesktopOnlyPage
+        title="接入中心"
+        description="接入状态来自本机各 AI 软件的会话日志目录，浏览器预览无法读取。"
+      />
+    )
+  }
+
   return (
     <div className="page">
-      <div className="page-heading">
-        <div>
-          <span className="page-kicker">
-            {data
-              ? `上次采集 ${formatClock(data.generatedAt)} · ${connected.length}/${data.sources.length} 来源可用 · 缓存命中 ${data.cacheStats.hit} / 解析 ${data.cacheStats.miss}`
-              : '读取本机各 AI 软件的会话日志'}
-          </span>
-          <strong>接入中心</strong>
-        </div>
-        <div className="heading-actions">
-          <button className="button button-secondary" type="button" onClick={() => refresh(true)}>
-            <RefreshCw size={15} className={loading ? 'spin' : undefined} />
-            强制重新采集
-          </button>
-          <button
-            className="button button-primary"
-            type="button"
-            onClick={() => void diagnoseSources()}
-            disabled={scanning}
-          >
-            <ShieldCheck size={15} className={scanning ? 'spin' : undefined} />
-            {scanning ? '诊断中' : '诊断来源'}
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        kicker={
+          data
+            ? `上次采集 ${formatClock(data.generatedAt)} · 缓存命中 ${data.cacheStats.hit} / 解析 ${data.cacheStats.miss}`
+            : '读取本机各 AI 软件的会话日志'
+        }
+        title="接入中心"
+        actions={
+          <>
+            <Button
+              variant="secondary"
+              icon={<RefreshCw size={ICON_SIZE.sm} />}
+              onClick={() => setConfirmRescan(true)}
+            >
+              强制重新采集
+            </Button>
+            <Button
+              variant="primary"
+              icon={<ShieldCheck size={ICON_SIZE.sm} />}
+              loading={scanning}
+              onClick={() => void diagnoseSources()}
+            >
+              诊断来源
+            </Button>
+          </>
+        }
+      />
 
       {data && (
-        <div className="kpi-strip">
-          <div className="kpi-card">
-            <small>已接入软件</small>
-            <strong>{connected.length}</strong>
-          </div>
-          <div className="kpi-card">
-            <small>累计会话</small>
-            <strong>{data.sessions.length}</strong>
-          </div>
-          <div className="kpi-card">
-            <small>诊断后目录存在</small>
-            <strong>{scanResult ? `${existingSources}/${scanResult.length}` : '—'}</strong>
-          </div>
-          <div className="kpi-card">
-            <small>诊断后今日写入</small>
-            <strong>{scanResult ? filesToday : '—'}</strong>
-          </div>
-        </div>
+        <SummaryStrip
+          items={[
+            {
+              key: 'connected',
+              label: '已接入软件',
+              value: connected.length,
+              hint: `共 ${data.sources.length} 个来源`,
+              icon: <RadioTower size={ICON_SIZE.sm} />,
+              tone: 'primary',
+            },
+            {
+              key: 'sessions',
+              label: '累计会话',
+              value: data.sessions.length,
+              icon: <MessageSquare size={ICON_SIZE.sm} />,
+            },
+            {
+              key: 'exists',
+              label: '诊断目录存在',
+              value: scanResult ? `${existingSources}/${scanResult.length}` : '—',
+              hint: scanResult ? '目录可读' : '点「诊断来源」',
+              icon: <FolderCheck size={ICON_SIZE.sm} />,
+              compact: true,
+            },
+            {
+              key: 'today',
+              label: '今日日志写入',
+              value: scanResult ? filesToday : '—',
+              hint: scanResult ? '诊断后的文件数' : '点「诊断来源」',
+              icon: <FileClock size={ICON_SIZE.sm} />,
+            },
+          ]}
+        />
       )}
 
-      {!data && loading && (
-        <div className="page-loading">
-          <span />
-          正在读取本机 AI 会话日志…
-        </div>
-      )}
+      {!data && loading && <SkeletonPage cells={4} rows={5} />}
 
       {data && (
         <>
           <section className="session-section">
             <div className="section-title-row">
               <span className="eyebrow">已接入（{connected.length}）</span>
-              <span className="result-count">会话数为本机累计，可诊断目录写入状态</span>
+              <span className="result-count">会话数为本机累计 · 可诊断目录写入状态</span>
             </div>
             <div className="source-card-list">
               {connected.map((source) => {
@@ -121,7 +175,7 @@ export function SourcesPage({ onToast }: SourcesPageProps) {
                     <div className="source-card-head">
                       <span className="status-dot status-healthy" />
                       <strong>{source.name}</strong>
-                      <span className="source-count">{source.sessionCount} 会话</span>
+                      <Badge>{source.sessionCount} 会话</Badge>
                       {source.lastActivity && (
                         <span className="source-last">
                           最近活动 {new Date(source.lastActivity).toLocaleDateString('zh-CN')}
@@ -148,34 +202,59 @@ export function SourcesPage({ onToast }: SourcesPageProps) {
                 <span className="result-count">诚实说明，不造假数据</span>
               </div>
               <div className="source-card-list">
-                {others.map((s) => (
-                  <div className="source-card muted" key={s.id}>
-                    <div className="source-card-head">
-                      <span
-                        className={
-                          s.status === 'error'
-                            ? 'status-dot status-warning'
-                            : 'status-dot status-paused'
-                        }
-                      />
-                      <strong>{s.name}</strong>
-                      <span className="source-status-text">{STATUS_TEXT[s.status] ?? s.status}</span>
-                    </div>
-                    <div className="source-card-note">{s.detail}</div>
-                    {scanMap.get(s.id) && (
-                      <div className="source-card-note">
-                        诊断：{scanMap.get(s.id)!.exists ? '目录存在' : '目录不存在'}
-                        {scanMap.get(s.id)!.lastModified
-                          ? ` · 最近修改 ${scanMap.get(s.id)!.lastModified}`
-                          : ''}
+                {others.map((s) => {
+                  const diagnostic = scanMap.get(s.id)
+                  return (
+                    <div className={classNames('source-card', 'muted')} key={s.id}>
+                      <div className="source-card-head">
+                        <span
+                          className={classNames(
+                            'status-dot',
+                            s.status === 'error' ? 'status-warning' : 'status-paused',
+                          )}
+                        />
+                        <strong>{s.name}</strong>
+                        <span className="source-status-text">
+                          {STATUS_TEXT[s.status] ?? s.status}
+                        </span>
                       </div>
-                    )}
-                  </div>
-                ))}
+                      {s.detail && <div className="source-card-note">{s.detail}</div>}
+                      {diagnostic && (
+                        <div className="source-card-note">
+                          诊断：{diagnostic.exists ? '目录存在' : '目录不存在'}
+                          {diagnostic.lastModified ? ` · 最近修改 ${diagnostic.lastModified}` : ''}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             </section>
           )}
         </>
+      )}
+
+      {!data && !loading && (
+        <EmptyState
+          title="还没有采集结果"
+          description="点击「强制重新采集」读取本机各 AI 软件的会话日志。"
+        />
+      )}
+
+      {confirmRescan && (
+        <ConfirmDialog
+          title="强制重新采集？"
+          description="这会清空会话解析缓存，并重新扫描全部接入来源。"
+          details={[
+            '本机日志文件本身不会被修改，读取始终是只读操作',
+            `当前已解析 ${data?.sessions.length ?? 0} 个会话，重新采集后数量应当一致`,
+            '全量扫描通常需要 10–20 秒，期间界面可以继续使用',
+          ]}
+          confirmLabel="重新采集"
+          loading={rescanning}
+          onConfirm={() => void runRescan()}
+          onCancel={() => setConfirmRescan(false)}
+        />
       )}
     </div>
   )

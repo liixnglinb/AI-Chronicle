@@ -16,10 +16,16 @@
     "dev:desktop": "concurrently -k \"vite --host 127.0.0.1 --port 5173\" \"wait-on http://127.0.0.1:5173 && cross-env ELECTRON_START_URL=http://127.0.0.1:5173 electron .\"",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "verify": "npm run format:check && npm run lint && npm run test && npm run build",
     "preview": "vite preview",
     "icon": "node scripts/generate-icon.mjs",
     "pack": "npm run build && npm run icon && electron-builder --dir",
-    "dist": "npm run build && npm run icon && electron-builder --win nsis portable --x64 --publish never"
+    "dist": "npm run build && npm run icon && electron-builder --win nsis portable --x64 --publish never",
+    "prepare": "node scripts/setup-git-hooks.mjs"
   },
   "dependencies": {
     "electron-updater": "^6.8.9",
@@ -30,6 +36,8 @@
     "recharts": "^3.10.1"
   },
   "devDependencies": {
+    "@commitlint/cli": "^21.2.3",
+    "@commitlint/config-conventional": "^21.2.3",
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
@@ -38,11 +46,14 @@
     "cross-env": "^10.1.0",
     "electron": "^44.4.5",
     "electron-builder": "^26.15.3",
+    "lint-staged": "^17.6.0",
     "oxlint": "^1.81.0",
     "png-to-ico": "^3.0.2",
+    "prettier": "^3.9.9",
     "sharp": "^0.35.4",
     "typescript": "~6.0.2",
     "vite": "^8.3.0",
+    "vitest": "^5.0.3",
     "wait-on": "^9.1.0"
   },
   "build": {
@@ -75,6 +86,16 @@
         }
       ],
       "icon": "build/icon.ico",
+      "extraResources": [
+        {
+          "from": "build/icon.ico",
+          "to": "icon.ico"
+        },
+        {
+          "from": "build/tray.png",
+          "to": "tray.png"
+        }
+      ],
       "requestedExecutionLevel": "asInvoker",
       "artifactName": "AI-Chronicle-Setup.${ext}"
     },

@@ -1,9 +1,16 @@
 import { useMemo, useState } from 'react'
+import { ChevronDown } from 'lucide-react'
 import { useChronicle } from '../lib/store'
 import { dayKeyOf, formatDayLabel, formatDuration, sessionDurationMinutes } from '../lib/format'
 import { SessionRow } from '../components/SessionRow'
 import { ToolDot } from '../components/ToolDot'
+import { PageHeader } from '../components/PageHeader'
+import { EmptyState, DesktopOnlyPage } from '../components/EmptyState'
+import { LoadMore } from '../components/Progress'
+import { SkeletonPage } from '../components/Skeleton'
+import { classNames } from '../lib/utils'
 import type { SessionRecord } from '../types'
+import { ICON_SIZE } from '../lib/ui'
 
 interface HistoryPageProps {
   searchQuery: string
@@ -12,6 +19,12 @@ interface HistoryPageProps {
 type DateRange = 7 | 30 | 0
 
 const PAGE_SIZE = 10
+
+const RANGE_OPTIONS: Array<[string, string]> = [
+  ['0', '全部时间'],
+  ['30', '近 30 天'],
+  ['7', '近 7 天'],
+]
 
 export function HistoryPage({ searchQuery }: HistoryPageProps) {
   const { data, loading, isDesktop } = useChronicle()
@@ -66,9 +79,7 @@ export function HistoryPage({ searchQuery }: HistoryPageProps) {
         day.tools.set(s.tool, { name: s.toolName, color: s.toolColor })
       }
     }
-    const keys = [...map.keys()]
-      .sort((a, b) => (a < b ? 1 : -1))
-      .slice(0, visibleCount)
+    const keys = [...map.keys()].sort((a, b) => (a < b ? 1 : -1)).slice(0, visibleCount)
     return keys.map((key) => {
       const day = map.get(key)!
       const sessions = [...day.sessions].sort((a, b) => (b.start || 0) - (a.start || 0))
@@ -79,44 +90,47 @@ export function HistoryPage({ searchQuery }: HistoryPageProps) {
 
   const totalMinutes = filteredSessions.reduce((sum, s) => sum + sessionDurationMinutes(s), 0)
   const totalArtifacts = filteredSessions.reduce((sum, s) => sum + (s.artifacts ?? []).length, 0)
+  const totalSpan = formatDuration(totalMinutes)
+
+  // 有记录的天数（用于「继续加载」的剩余计数）
+  const totalDays = useMemo(
+    () =>
+      new Set(filteredSessions.filter((s) => s.start).map((s) => dayKeyOf(s.start as number))).size,
+    [filteredSessions],
+  )
+  const remainingDays = Math.max(0, totalDays - days.length)
+  const hasMoreDays = remainingDays > 0
 
   if (!isDesktop) {
-    return (
-      <div className="page">
-        <div className="empty-state">
-          <strong>需要桌面版</strong>
-          <span>会话档案读取的是本机真实会话日志。</span>
-        </div>
-      </div>
-    )
+    return <DesktopOnlyPage title="会话档案" description="会话档案读取的是本机真实会话日志。" />
   }
+
+  const kicker = filteredSessions.length
+    ? [
+        `${filteredSessions.length} 条会话`,
+        `${totalArtifacts} 个产出`,
+        totalSpan ? `累计时长 ${totalSpan}` : '',
+      ]
+        .filter(Boolean)
+        .join(' · ')
+    : '全部真实会话都保存在本机'
 
   return (
     <div className="page">
-      <div className="page-heading">
-        <div>
-          <span className="page-kicker">
-            {days.length
-              ? `${filteredSessions.length} 条会话 · ${totalArtifacts} 个产出 · 跨度 ${formatDuration(totalMinutes)}`
-              : '全部真实会话都保存在本机'}
-          </span>
-          <strong>会话档案</strong>
-        </div>
-      </div>
+      <PageHeader kicker={kicker} title="会话档案" />
 
       <div className="collection-toolbar">
         <div className="filter-chip-scroll">
-          {([
-            ['all', '全部时间'],
-            ['30', '近 30 天'],
-            ['7', '近 7 天'],
-          ] as Array<[string, string]>).map(([value, label]) => (
+          {RANGE_OPTIONS.map(([value, label]) => (
             <button
               key={value}
               type="button"
-              className={range.toString() === value ? 'filter-chip filter-chip-active' : 'filter-chip'}
+              className={classNames(
+                'filter-chip',
+                range.toString() === value && 'filter-chip-active',
+              )}
               onClick={() => {
-                setRange(value === 'all' ? 0 : Number(value) as DateRange)
+                setRange((value === '0' ? 0 : Number(value)) as DateRange)
                 setVisibleCount(PAGE_SIZE)
               }}
             >
@@ -127,7 +141,7 @@ export function HistoryPage({ searchQuery }: HistoryPageProps) {
         <div className="filter-chip-scroll">
           <button
             type="button"
-            className={toolFilter === 'all' ? 'filter-chip filter-chip-active' : 'filter-chip'}
+            className={classNames('filter-chip', toolFilter === 'all' && 'filter-chip-active')}
             onClick={() => {
               setToolFilter('all')
               setVisibleCount(PAGE_SIZE)
@@ -139,7 +153,10 @@ export function HistoryPage({ searchQuery }: HistoryPageProps) {
             <button
               key={tool.name}
               type="button"
-              className={toolFilter === tool.name ? 'filter-chip filter-chip-active' : 'filter-chip'}
+              className={classNames(
+                'filter-chip',
+                toolFilter === tool.name && 'filter-chip-active',
+              )}
               onClick={() => {
                 setToolFilter(tool.name)
                 setVisibleCount(PAGE_SIZE)
@@ -152,44 +169,49 @@ export function HistoryPage({ searchQuery }: HistoryPageProps) {
         </div>
       </div>
 
-      {loading && !data && (
-        <div className="page-loading">
-          <span />
-          正在读取本机 AI 会话日志…
-        </div>
-      )}
+      {loading && !data && <SkeletonPage cells={0} rows={6} />}
 
       {data && days.length === 0 && (
-        <div className="empty-state">
-          <strong>没有匹配的会话档案</strong>
-          <span>调整时间范围、软件筛选或顶部搜索词后重试。</span>
-        </div>
+        <EmptyState
+          title="没有匹配的会话档案"
+          description="调整时间范围、软件筛选或顶部搜索词后重试。"
+        />
       )}
 
       <div className="history-day-list">
         {days.map((day) => {
           const open = openDay === day.key
           return (
-            <div className={open ? 'history-day-card open' : 'history-day-card'} key={day.key}>
+            <div
+              className={classNames('history-day-card', 'list-item-enter', open && 'open')}
+              key={day.key}
+            >
               <button
                 type="button"
                 className="history-day-head"
                 onClick={() => setOpenDay(open ? null : day.key)}
+                aria-expanded={open}
               >
                 <div className="history-day-title">
                   <strong>{formatDayLabel(day.key)}</strong>
                   <span className="history-day-meta">
                     {day.sessions.length} 会话
-                    {day.minutes > 0 && ` · 跨度 ${formatDuration(day.minutes)}`}
+                    {day.minutes > 0 && ` · 累计 ${formatDuration(day.minutes)}`}
                   </span>
                 </div>
                 <div className="history-day-tools">
-                  {day.tools.slice(0, 5).map((t) => (
-                    <span key={t.name} className="history-day-tool">
-                      <ToolDot color={t.color} name={t.name} />
-                    </span>
+                  {day.tools.slice(0, 4).map((t) => (
+                    <ToolDot key={t.name} color={t.color} name={t.name} />
                   ))}
+                  {day.tools.length > 4 && (
+                    <span className="result-count">+{day.tools.length - 4}</span>
+                  )}
                 </div>
+                <ChevronDown
+                  size={ICON_SIZE.sm}
+                  className={classNames('history-day-chevron', open && 'history-day-chevron-open')}
+                  aria-hidden
+                />
               </button>
               {open && (
                 <div className="history-day-sessions">
@@ -203,16 +225,12 @@ export function HistoryPage({ searchQuery }: HistoryPageProps) {
         })}
       </div>
 
-      {filteredSessions.length > visibleCount * 2 && (
-        <div className="collection-more">
-          <button
-            className="button button-secondary"
-            type="button"
-            onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}
-          >
-            继续加载更早日志
-          </button>
-        </div>
+      {hasMoreDays && (
+        <LoadMore
+          noun="天日志"
+          remaining={remainingDays}
+          onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}
+        />
       )}
     </div>
   )

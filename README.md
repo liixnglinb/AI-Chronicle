@@ -4,37 +4,50 @@
 
 仓库：<https://github.com/liixnglinb/AI-Chronicle>
 
-## v0.3 —— 界面质感与数据精度（当前版本）
+## 功能一览
 
-- **界面重做**：中性深/浅双主题（去掉绿调底色与网格噪感）、顶栏对齐现代桌面应用习惯（视图图标 + 标题 + 采集时间）、页头层级整理、安装版隐藏默认菜单栏、应用图标高清重绘（1024 主图 + 16~256 全尺寸 ICO + 锐化）
-- **成果库真实现**：从最近 3 天会话对应的项目目录提取「会话时间窗内改动过的真实文件」，按天分组、点击直接打开
-- **数据精度对齐 Token Monitor**：同 message.id 用量取末条、子代理（subagents/sidechain）token 并回父会话、取消 96MB 单文件上限（readline 流式解析）——与 Token Monitor 扫描逐字节对账一致（本机 878 文件 / 747,758,852 tokens / 差 0）
-- **会话归属规则**：开始或结束落在当天的会话都算当天（跨零点长会话两端可见），时间显示带日期无歧义
-- **数据保活**：窗口聚焦 / 每 60 秒静默刷新，顶栏显示采集时间
-- 自检工具：`CHRONICLE_SHOT=<目录>` 逐页截图（8 页 × 深浅主题），`scripts/compare_claude.cjs` 与 Token Monitor 对账
+8 个页面，深浅双主题，全部数据来自本机日志解析（没有任何模拟数据）：
 
-## v0.2 —— 真实数据接入
+| 页面       | 内容                                                                                                    |
+| ---------- | ------------------------------------------------------------------------------------------------------- |
+| 今日工作台 | 今日指标（会话 / 软件 / 轮次 / 产出文件 / 活跃时段）+ 按工作目录归组的工作结论 + 一键导出 Markdown 日报 |
+| 会话档案   | 全部真实会话，按天分组、可按时间范围与软件筛选、可搜索                                                  |
+| 时间轴     | 今日 24 小时活跃分布（含峰值高亮与图例）+ 时间顺序会话                                                  |
+| 项目集     | 按工作目录聚合，可展开会话、一键打开项目目录                                                            |
+| 成果集     | 会话时间窗内项目目录里真实改动过的文件，可按类型 / 项目 / 软件筛选并直接打开                            |
+| 分析       | 近 7/14/30 天的投入、节奏、软件占比与重点项目                                                           |
+| 接入中心   | 各数据源接入状态、会话数、观察原因，支持强制重新采集与来源诊断                                          |
+| 设置中心   | 外观、数据采集、数据管理、桌面集成、软件更新、隐私、诊断、关于                                          |
 
-界面上的每一条记录都来自本机日志解析，没有任何模拟数据：
+主要交互：`Ctrl/Cmd + K` 命令面板（可搜全部会话）、侧边栏可收起、深浅主题、界面缩放。
 
-- **已接入 12 个数据源**（自动扫描本机，无需配置）：
-  Claude Code、Codex（含归档会话，按会话去重）、ZCode、OpenCode、WorkBuddy（新旧目录去重）、CatPaw、MHAgent、织流 Loom（ModexData）、Hermes、Agnes、DSH（zstd 解压）
-- 每条会话包含：时间范围、软件、工作目录（项目）、做了什么（首条真实用户输入）、对话轮次、token 用量、模型
-- **观察中数据源诚实标注原因**：Qoder（用量在 IDE 内部库）、TRAE（SQLCipher 加密）、Cursor（仅官方 API）、千问/豆包/Grok Bot（无本地日志）、Kimi/Cline（待适配）、Codex++（并入 Codex）
-- 系统注入文本（`<system-reminder>` / `<sandbox_context>` / AGENTS.md 等）会被剥离后再取标题，轮次统计不受影响
-- 文件级缓存（mtime+size 未变直接复用），首次全量约 10–20 秒，之后亚秒级
+## 导出的日报
 
-## 页面
+今日工作台可一键导出 Markdown 日报（`src/lib/summary.ts` 的 `buildDailyReport`）。原则是**一眼看懂 + 查得到细节**：
 
-- **今天**：今日 KPI（会话/软件/轮次/tokens/活跃时段）+ 按时间倒序的真实会话清单 + 一键导出 Markdown 日报
-- **历史**：最近 14 个有记录的日期，按天展开会话
-- **时间线**：今日 24 小时活跃分布 + 时间顺序会话
-- **项目**：按工作目录聚合，看每个项目花了多少会话/轮次/tokens
-- **洞察**：各软件 token 消耗、近 14 天趋势、贡献排行
-- **数据源**：接入状态、会话数、观察原因；支持强制重新采集
-- **设置**：主题、重新采集、JSON 全量备份、运行环境
+```
+# AI 工作日报 · 2026-10-02
+今天在 N 个目录用了 M 个软件，完成 X 个会话、Y 轮对话，产出 Z 个文件。   ← 一句话总览
+## 概览           会话 / 软件 / 轮次 / 活跃时段（含跨度）/ 产出文件（按类型）
+## 做了什么       按工作目录分段，每段列出该目录真实做的事情（会话标题）
+## 全部会话       一行一条的完整清单，便于检索
+## 产出文件       按类型归类（界面与代码 / 视觉素材 / 文档…），同类超过 8 个截断
+```
 
-主要交互：`Ctrl/Cmd + K` 命令面板（可搜全部会话）、侧边栏可收起、深浅主题。
+「做了什么」取会话的真实标题而不是套话；产出路径相对项目根目录缩写；标题超过 64 字截断；
+超过 12 个会话的项目只列前 12 条并提示见完整清单。不含用户输入原文。
+
+## 已接入的数据源
+
+自动扫描本机，无需配置：
+
+Claude Code、Codex（含归档会话，按会话去重）、ZCode、OpenCode、WorkBuddy（新旧目录去重）、CatPaw、MHAgent、织流 Loom（ModexData）、Hermes、Agnes、DSH（zstd 解压）。
+
+**观察中的数据源会诚实标注原因**：Qoder（用量在 IDE 内部库）、TRAE（SQLCipher 加密）、Cursor（仅官方 API）、千问 / 豆包 / Grok Bot（无本地日志）、Kimi / Cline（待适配）、Codex++（并入 Codex）。
+
+每条会话包含：时间范围、软件、工作目录、做了什么（首条真实用户输入）、对话轮次、模型；界面不展示 token，token 仅保留在采集层用于与 Token Monitor 对账。系统注入文本（`<system-reminder>` / `<sandbox_context>` / AGENTS.md 等）会被剥离后再取标题，轮次统计不受影响。
+
+会话归属规则：**开始或结束落在当天的会话都算当天**，跨零点长会话两端可见，时间显示带日期无歧义。
 
 ## 运行
 
@@ -44,19 +57,73 @@ npm run dev          # 浏览器预览（无文件权限，仅看界面结构）
 npm run dev:desktop  # Electron 开发模式（真实数据）
 ```
 
-## Windows 打包
+### 脚本
 
-```bash
-npm run dist   # release/ 下产出 Setup 安装版 + Portable 便携版 + latest.yml
-```
+| 命令                              | 作用                                             |
+| --------------------------------- | ------------------------------------------------ |
+| `npm run dev` / `dev:desktop`     | 浏览器预览 / Electron 开发模式                   |
+| `npm run build`                   | 类型检查（含测试项目）+ 生产构建（注入 CSP）     |
+| `npm run lint`                    | oxlint 静态检查                                  |
+| `npm run format` / `format:check` | Prettier 格式化 / 校验                           |
+| `npm run test` / `test:watch`     | Vitest 单元测试（56 项）                         |
+| `npm run verify`                  | 依次执行 format:check → lint → test → build      |
+| `npm run dist`                    | 产出 Setup 安装版 + Portable 便携版 + latest.yml |
 
-- 技术栈：Electron 44（Node 24 内置 `node:sqlite` 只读直连各软件数据库，零原生模块）+ React 19 + TypeScript + Vite 8 + Recharts + fzstd（纯 JS zstd）
-- 自动更新：electron-updater，更新清单 `releases/latest/download/latest.yml`
-- 采集层实现见 `electron/ingest.cjs`；自检：`CHRONICLE_DEBUG=1 electron .` 输出采集汇总后退出
-- 诊断脚本：`scripts/survey_sources.py`（数据源普查）、`scripts/test-ingest.cjs`（采集层独立验证）
+### 自检与诊断
 
-当前构建未配置商业代码签名，Windows SmartScreen 可能提示未知发布者。
+- `CHRONICLE_SHOT=<目录> electron .` —— 逐页截图（8 页 × 深浅共 16 张），用于 UI 回归复核
+- `CHRONICLE_DEBUG=1 electron .` —— 输出采集汇总与启动耗时后退出
+- `scripts/e2e-cdp.cjs` —— 通过 CDP 对运行中的实例截图 / 取元素 / 执行 JS
+- `scripts/survey_sources.py`（数据源普查）、`scripts/test-ingest.cjs`（采集层独立验证）
+
+> 注意：本机 shell 若预设了 `ELECTRON_RUN_AS_NODE=1`，Electron 会退化成纯 Node 启动。请用 `env -u ELECTRON_RUN_AS_NODE` 运行；无 GPU 环境追加 `--disable-gpu --disable-software-rasterizer`。
+
+## 工程化与质量
+
+- **代码规范**：oxlint（`lint`）+ Prettier（`format:check`）+ EditorConfig
+- **提交规范**：`@commitlint/config-conventional` 校验提交信息；pre-commit 钩子对暂存文件跑 oxlint + Prettier
+  - 钩子由 `npm run prepare` 执行 `scripts/setup-git-hooks.mjs` 安装（把 `core.hooksPath` 指向 `.husky`）。不用 husky 是为了避免其安装器依赖 shell 子进程，在受限环境下会阻断 `npm install`。
+- **测试**：Vitest 覆盖最容易回归的纯逻辑 —— 时间格式化与跨零点判定、路径缩写、工作摘要归组、Markdown 日报、日志目录名还原、缓存加解密与失效条件
+- **CI**：`.github/workflows/ci.yml` 在 push / PR 上依次执行 格式校验 → lint → 类型检查 + 单测 → 生产依赖审计 → 构建 → 校验产物已注入 CSP；`release.yml` 在打 tag 时先跑同样的质量关卡再打包发布
+
+## 安全
+
+| 措施         | 实现                                                                                                                                                         |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 渲染进程隔离 | `contextIsolation: true` + `sandbox: true` + `nodeIntegration: false`，全部能力经 preload 白名单暴露                                                         |
+| 内容安全策略 | 生产构建注入严格 CSP（`object-src 'none'`、`base-uri 'none'`、`form-action 'none'`、`frame-ancestors 'none'`），仅允许本地资源。开发模式不注入，以免打断 HMR |
+| 外链处理     | `setWindowOpenHandler` 与 `will-navigate` 拦截，外部链接交给系统浏览器打开                                                                                   |
+| 更新源校验   | 更新请求限定 https + host 白名单，且 DNS 解析结果不得为环回 / 私有 / 保留地址（防 SSRF 与 DNS 重绑定）；更新包由 electron-updater 校验 sha512                |
+| 本地缓存加密 | 采集缓存含会话标题与项目路径，优先用系统钥匙串（`safeStorage`）加密落盘；钥匙串不可用时退化为明文以保证功能可用                                              |
+| 加密备份     | 导出可选密码加密（scrypt 派生密钥 + AES-256-GCM 认证加密），可跨设备解密；支持打开并校验备份文件                                                             |
+| 依赖审计     | CI 对生产依赖执行 `npm audit --audit-level=high`，当前 0 漏洞                                                                                                |
+| 错误可观测   | 渲染进程未捕获异常 / 未处理拒绝 / 组件崩溃统一上报，与主进程异常一起写入 `userData/logs`，设置页可一键打开日志目录                                           |
+
+**代码签名**：当前构建未配置商业代码签名，Windows SmartScreen 可能提示「未知发布者」。这是分发环节的已知缺口，需要购买代码签名证书后接入 CI。
+
+## 桌面端集成
+
+- **窗口状态记忆**：位置、尺寸、最大化与界面缩放都会持久化，下次启动原样恢复；位置会校验是否仍落在某个显示器工作区内，避免外接屏拔掉后窗口跑到屏幕外
+- **界面缩放**：90% / 100% / 110% / 125% 四档，用 Chromium 页面缩放实现（`100vh` 语义不受影响），在页面加载前后各设置一次避免闪动
+- **系统托盘**：托盘菜单提供显示主窗口 / 立即重新采集 / 检查更新 / 退出，单击切换显示
+- **最小化到托盘**：默认关闭（保持「点关闭即退出」的常规行为），开启后关闭只隐藏窗口
+- **开机自启**：默认关闭，仅安装版生效，自启时以 `--hidden` 静默进托盘
+- **系统通知**：采集完成或更新包下载完成时通知，且仅在窗口不在前台时发送
+- **自动更新**：electron-updater 并发测速 GitHub 直连与镜像，取最快通道下载；下载 / 校验失败按测速顺序自动切换备用源；设置中心统一展示检查中 / 下载中 / 已就绪 / 已是最新 / 出错 / 开发模式状态，更新完成需用户确认才安装；支持跳过某版本、恢复提示与更新失败时前往 Release 下载页
+
+## 环境变量
+
+| 变量               | 说明                                                                                                                              |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
+| `VITE_APP_CHANNEL` | 发布通道，取值 `stable` / `beta` / `dev`；影响界面标注与诊断信息。默认 `.env.development` 为 `dev`，`.env.production` 为 `stable` |
+
+## 架构
+
+- **技术栈**：Electron 44（Node 24 内置 `node:sqlite` 只读直连各软件数据库，零原生模块）+ React 19 + TypeScript + Vite 8 + Recharts + fzstd（纯 JS zstd）
+- **采集层**：`electron/ingest.cjs`。文件级缓存（mtime + size 未变直接复用），首次全量约 10–20 秒，之后亚秒级。缓存版本号在解析逻辑变更时必须递增（`CACHE_VERSION`）
+- **前端结构**：`src/components` 放通用原语（PageHeader / EmptyState / SummaryStrip / ChartTooltip / Switch / ErrorBoundary），`src/pages` 放 8 个页面，`src/lib` 放纯逻辑（format / summary / theme / env / errors / useIncrementalList / store）
+- **样式**：`src/App.css` 是唯一样式入口，按「令牌 → 基础 → 外壳 → 原语 → 页面 → 浮层 → 响应式」分层。新增样式请复用令牌，不要引入一次性字号与间距
 
 ## 隐私
 
-全部数据在本机解析与保存，不联网上传任何会话内容。日志读取为只读操作。
+全部数据在本机解析与保存，不联网上传任何会话内容。日志读取为只读操作，软件不会修改任何被读取的 AI 软件数据。

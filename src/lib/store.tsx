@@ -48,6 +48,8 @@ interface ChronicleContextValue {
     notes?: string
     message?: string
     source?: string
+    skippedVersion?: string
+    probes?: Array<{ id: string; label: string; ok: boolean; ms: number }>
   } | null
 }
 
@@ -120,6 +122,8 @@ export function ChronicleProvider({ children }: { children: ReactNode }) {
         notes: status.notes,
         message: status.message,
         source: status.source,
+        skippedVersion: status.skippedVersion,
+        probes: status.probes,
       })
     })
   }, [])
