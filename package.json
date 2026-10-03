@@ -2,7 +2,7 @@
   "name": "ai-chronicle",
   "productName": "AI轨迹",
   "private": true,
-  "version": "0.6.6",
+  "version": "0.6.7",
   "description": "本地优先的 AI 工作统计、历史档案与日报桌面应用",
   "author": "AI Chronicle",
   "repository": {
@@ -92,8 +92,20 @@
           "to": "icon.ico"
         },
         {
-          "from": "build/tray.png",
-          "to": "tray.png"
+          "from": "build/tray-on-dark.ico",
+          "to": "tray-on-dark.ico"
+        },
+        {
+          "from": "build/tray-on-light.ico",
+          "to": "tray-on-light.ico"
+        },
+        {
+          "from": "build/tray-on-dark.png",
+          "to": "tray-on-dark.png"
+        },
+        {
+          "from": "build/tray-on-light.png",
+          "to": "tray-on-light.png"
         }
       ],
       "requestedExecutionLevel": "asInvoker",

@@ -394,14 +394,6 @@ svg {
   background: var(--surface-hover);
 }
 
-.brand img {
-  flex: 0 0 auto;
-  width: 26px;
-  height: 26px;
-  border-radius: var(--radius-sm);
-  object-fit: contain;
-}
-
 /* 收起态：品牌位显示「展开」图标，给出明确的还原入口 */
 .brand-expand-icon {
   display: grid;

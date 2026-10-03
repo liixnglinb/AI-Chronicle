@@ -174,7 +174,6 @@ export function AppShell({
             ) : (
               <>
                 <div className="brand">
-                  <img src="favicon.svg" alt="" width={26} height={26} />
                   <span className="brand-copy">
                     <strong>AI 轨迹</strong>
                     <small>LOCAL ACTIVITY OS</small>

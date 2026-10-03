@@ -4,6 +4,7 @@ const {
   Menu,
   dialog,
   ipcMain,
+  nativeTheme,
   net,
   Notification,
   safeStorage,
@@ -259,17 +260,37 @@ function notify(title, body) {
   }
 }
 
+// 托盘字形分深浅两套：深色任务栏用浅色字形（tray-on-dark），
+// 浅色任务栏用深色字形（tray-on-light）。只跟随系统主题，
+// 不跟随应用内主题——托盘长在系统任务栏上。
+function resolveTrayIcon() {
+  const base = nativeTheme.shouldUseDarkColors ? 'tray-on-dark' : 'tray-on-light'
+  // Windows 优先用多尺寸 ICO，让系统按 DPI 直接取 16/20/24/32 图层；
+  // 其它平台用 32px PNG。都缺时回退到应用图标，至少不是空白。
+  const names =
+    process.platform === 'win32'
+      ? [`${base}.ico`, `${base}.png`, 'icon.ico']
+      : [`${base}.png`, 'icon.ico']
+  for (const name of names) {
+    const resolved = runtimeAssetPath(name)
+    if (fs.existsSync(resolved)) return resolved
+  }
+  return null
+}
+
 function createTray() {
   if (tray) return tray
-  // 托盘使用专门的 32px PNG，确保 Windows「显示隐藏图标」区域在 DPI 缩放下
-  // 不会从 ICO 随机挑错图层；没有 PNG 时回退到完整 ICO。
-  const trayPath = runtimeAssetPath('tray.png')
-  const iconPath = runtimeAssetPath('icon.ico')
-  const trayIcon = fs.existsSync(trayPath) ? trayPath : iconPath
-  if (!fs.existsSync(trayIcon)) return null
+  const trayIcon = resolveTrayIcon()
+  if (!trayIcon) return null
 
   tray = new Tray(trayIcon)
   tray.setToolTip('AI 轨迹 · 本地工作观测台')
+  // 系统在深浅色之间切换时同步换字形，避免浅色任务栏上白字压白底
+  nativeTheme.on('updated', () => {
+    const next = resolveTrayIcon()
+    if (tray && next) tray.setImage(next)
+  })
+
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: '显示主窗口', click: () => showMainWindow() },
