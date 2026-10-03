@@ -9,7 +9,9 @@ function isTheme(value: unknown): value is ThemeName {
   return value === 'light' || value === 'dark'
 }
 
-/** 优先级：URL 参数（截图自检 / 深链） > 本地存储 > 系统偏好 */
+/** 优先级：URL 参数（截图自检 / 深链） > 本地存储 > 默认档。
+ *  默认档固定为深色：v0.6.4 起暗色档是主打的黑曜石质感，
+ *  浅色档保留为可选，不再跟随系统偏好自动切换。 */
 export function getInitialTheme(): ThemeName {
   const param = new URLSearchParams(window.location.search).get('theme')
   if (isTheme(param)) return param
@@ -21,7 +23,7 @@ export function getInitialTheme(): ThemeName {
     // 隐私模式等场景下 localStorage 可能不可用
   }
 
-  return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  return 'dark'
 }
 
 export function applyTheme(theme: ThemeName) {

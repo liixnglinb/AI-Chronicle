@@ -326,16 +326,16 @@ function createWindow() {
     minWidth: 960,
     minHeight: 680,
     show: false,
-    backgroundColor: '#f5f6f7',
+    backgroundColor: '#08090a',
     title: 'AI 轨迹',
     icon: fs.existsSync(iconPath) ? iconPath : undefined,
     ...(process.platform === 'win32'
       ? {
           titleBarStyle: 'hidden',
           titleBarOverlay: {
-            // 与 CSS --chrome-bg 深色值一致；渲染层挂载后会按实际主题同步
-            color: '#17191b',
-            symbolColor: '#f1f3f4',
+            // 与 CSS --chrome-bg 暗色档一致；渲染层挂载后会按实际主题同步
+            color: '#121315',
+            symbolColor: '#f6f7f8',
             height: 40,
           },
         }
@@ -1074,10 +1074,11 @@ ipcMain.handle('desktop:report-error', (_event, payload) => {
 })
 
 // 窗口镶边跟随主题：Windows 下 titleBarOverlay 的颜色是主进程属性，
-// 只有同步它，浅色主题才不会在顶部残留一条深色带。
+// 只有同步它，切换主题才不会在顶部残留一条异色带。
+// dark 值必须与 CSS 的 --chrome-bg（暗色档 = --vr-surface 的 #121315）保持一致。
 const CHROME_COLORS = {
   light: { color: '#ffffff', symbolColor: '#15181a' },
-  dark: { color: '#17191b', symbolColor: '#f1f3f4' },
+  dark: { color: '#121315', symbolColor: '#f6f7f8' },
 }
 
 ipcMain.handle('desktop:set-window-theme', (event, theme) => {
