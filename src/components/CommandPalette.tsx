@@ -9,7 +9,7 @@ import { ICON_SIZE } from '../lib/ui'
 
 interface CommandPaletteProps {
   onClose: () => void
-  onNavigate: (view: ViewId) => void
+  onNavigate: (view: ViewId, search?: string) => void
   onThemeToggle: () => void
   onAction: (toast: Omit<ToastMessage, 'id'>) => void
 }
@@ -32,7 +32,7 @@ export function CommandPalette({
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
   const paletteRef = useRef<HTMLDivElement>(null)
-  const { data, refresh, isDesktop } = useChronicle()
+  const { data, refresh, isDesktop, loading } = useChronicle()
 
   // 焦点陷阱：Tab 不会跑到遮罩后的页面，Esc 关闭后焦点归还给触发按钮
   useFocusTrap(paletteRef, true, onClose)
@@ -52,24 +52,29 @@ export function CommandPalette({
       icon: <Moon size={ICON_SIZE.xs} />,
       run: onThemeToggle,
     })
-    if (isDesktop) {
+    if (isDesktop && !loading) {
       list.push({
         key: 'refresh',
         label: '重新采集数据',
         hint: '重新扫描全部接入来源',
         icon: <RefreshCw size={ICON_SIZE.xs} />,
         run: () => {
-          void refresh(true).then(() =>
+          void refresh(true).then((ok) => {
+            if (!ok) return
             onAction({
               tone: 'success',
               title: '已重新采集',
-              message: '全部接入来源已按最新文件重新解析。',
-            }),
-          )
+              message: '采集结果已更新；异常来源可在接入中心查看。',
+            })
+          })
         },
       })
     }
     // 会话搜索
+    const needle = query.trim().toLowerCase()
+    const commands = needle
+      ? list.filter((item) => (item.label + ' ' + item.hint).toLowerCase().includes(needle))
+      : list
     if (query.trim()) {
       const q = query.trim().toLowerCase()
       const matches = (data?.sessions ?? [])
@@ -84,7 +89,7 @@ export function CommandPalette({
         .slice(0, 6)
       for (const s of matches) {
         const today = dayKeyOf(Date.now()) === dayKeyOf(s.start || 0)
-        list.push({
+        commands.push({
           key: `session-${s.id}`,
           label: s.title,
           hint: `${s.toolName} · ${s.project} · ${
@@ -93,23 +98,26 @@ export function CommandPalette({
               : new Date(s.start || 0).toLocaleDateString('zh-CN')
           }`,
           icon: <span className="tool-dot" style={{ ['--tool-color' as string]: s.toolColor }} />,
-          run: () => onNavigate(today ? 'today' : 'history'),
+          run: () => onNavigate('history', s.title),
         })
       }
     }
-    return list
-  }, [query, data, onNavigate, onThemeToggle, onAction, refresh, isDesktop])
+    return commands
+  }, [query, data, onNavigate, onThemeToggle, onAction, refresh, isDesktop, loading])
 
   useEffect(() => {
-    setActive(0)
-  }, [query])
+    paletteRef.current
+      ?.querySelector('#command-option-' + active)
+      ?.scrollIntoView({ block: 'nearest' })
+  }, [active, items.length])
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
+      if (!(event.target instanceof HTMLInputElement) || event.isComposing) return
       // Esc 由 useFocusTrap 统一处理
       if (event.key === 'ArrowDown') {
         event.preventDefault()
-        setActive((v) => Math.min(v + 1, items.length - 1))
+        setActive((v) => Math.max(0, Math.min(v + 1, items.length - 1)))
       }
       if (event.key === 'ArrowUp') {
         event.preventDefault()
@@ -143,7 +151,10 @@ export function CommandPalette({
           <Search size={ICON_SIZE.sm} />
           <input
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              setQuery(e.target.value)
+              setActive(0)
+            }}
             placeholder="搜索会话、项目、文件或执行命令…"
             aria-label="搜索会话、项目、文件或执行命令"
             role="combobox"
@@ -162,6 +173,7 @@ export function CommandPalette({
               key={item.key}
               id={`command-option-${index}`}
               type="button"
+              tabIndex={-1}
               role="option"
               aria-selected={index === active}
               className={

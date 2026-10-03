@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { AppShell } from './components/AppShell'
 import { CommandPalette } from './components/CommandPalette'
 import { ToastStack } from './components/ToastStack'
@@ -8,6 +8,7 @@ import { applyTheme, getInitialTheme, type ThemeName } from './lib/theme'
 import { navItems } from './data/nav'
 import type { ToastMessage, ViewId } from './types'
 import './App.css'
+import './styles/voyra-ui.css'
 
 const TodayPage = lazy(() =>
   import('./pages/TodayPage').then((module) => ({ default: module.TodayPage })),
@@ -47,6 +48,8 @@ function App() {
   const [theme, setTheme] = useState<ThemeName>(getInitialTheme)
   const [commandOpen, setCommandOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  const viewSearches = useRef<Partial<Record<ViewId, string>>>({})
+  const viewScroll = useRef<Partial<Record<ViewId, number>>>({})
   const [toasts, setToasts] = useState<ToastMessage[]>([])
 
   const pushToast = useCallback((toast: Omit<ToastMessage, 'id'>) => {
@@ -133,10 +136,64 @@ function App() {
     })
   }, [pushToast])
 
-  function navigate(view: ViewId) {
+  function navigate(view: ViewId, search?: string) {
+    viewSearches.current[activeView] = searchQuery
+    viewScroll.current[activeView] = document.getElementById('main-content')?.scrollTop || 0
+    if (search !== undefined) {
+      try {
+        sessionStorage.setItem('voyra-view-history-range', '0')
+        sessionStorage.setItem('voyra-view-history-tool', JSON.stringify('all'))
+      } catch {
+        /* private browsing */
+      }
+    }
     setActiveView(view)
+    const nextSearch = search ?? viewSearches.current[view] ?? ''
+    setSearchQuery(nextSearch)
+    const url = new URL(window.location.href)
+    url.searchParams.set('view', view)
+    window.history[view === activeView ? 'replaceState' : 'pushState'](
+      { ...window.history.state, uiSearch: nextSearch },
+      '',
+      url,
+    )
+  }
+
+  useEffect(() => {
+    const restore = () => {
+      const view = getInitialView()
+      setActiveView(view)
+      setSearchQuery(window.history.state?.uiSearch || viewSearches.current[view] || '')
+    }
+    window.addEventListener('popstate', restore)
+    return () => window.removeEventListener('popstate', restore)
+  }, [])
+
+  useEffect(() => {
+    const container = document.getElementById('main-content')
+    if (!container) return
+    const target = viewScroll.current[activeView] || 0
+    const restore = () => {
+      if (container.scrollHeight >= target + container.clientHeight) container.scrollTop = target
+    }
+    restore()
+    const observer = new MutationObserver(restore)
+    observer.observe(container, { childList: true, subtree: true })
+    const stop = () => observer.disconnect()
+    container.addEventListener('wheel', stop, { once: true, passive: true })
+    container.addEventListener('touchstart', stop, { once: true, passive: true })
+    const timer = window.setTimeout(stop, 800)
+    return () => {
+      stop()
+      clearTimeout(timer)
+      container.removeEventListener('wheel', stop)
+      container.removeEventListener('touchstart', stop)
+    }
+  }, [activeView])
+
+  function clearSearch() {
     setSearchQuery('')
-    window.scrollTo(0, 0)
+    viewSearches.current[activeView] = ''
   }
 
   function renderPage() {
@@ -144,11 +201,13 @@ function App() {
       case 'timeline':
         return <TimelinePage searchQuery={searchQuery} />
       case 'history':
-        return <HistoryPage searchQuery={searchQuery} />
+        return <HistoryPage searchQuery={searchQuery} onClearSearch={clearSearch} />
       case 'projects':
-        return <ProjectsPage searchQuery={searchQuery} onToast={pushToast} />
+        return (
+          <ProjectsPage searchQuery={searchQuery} onClearSearch={clearSearch} onToast={pushToast} />
+        )
       case 'library':
-        return <LibraryPage searchQuery={searchQuery} />
+        return <LibraryPage searchQuery={searchQuery} onClearSearch={clearSearch} />
       case 'insights':
         return <InsightsPage onToast={pushToast} />
       case 'sources':

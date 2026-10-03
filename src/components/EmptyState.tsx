@@ -11,6 +11,7 @@ interface EmptyStateProps {
   tone?: 'neutral' | 'error'
   /** 紧凑形态：用于面板内部，不撑开整页高度 */
   compact?: boolean
+  actions?: ReactNode
 }
 
 /** 统一的空状态。取代此前 6 个页面里各自复制的空状态标记。 */
@@ -20,6 +21,7 @@ export function EmptyState({
   icon,
   tone = 'neutral',
   compact = false,
+  actions,
 }: EmptyStateProps) {
   return (
     <div
@@ -32,6 +34,7 @@ export function EmptyState({
       <span className="empty-state-icon">{icon ?? <Inbox size={ICON_SIZE.lg} />}</span>
       <strong>{title}</strong>
       {description ? <span>{description}</span> : null}
+      {actions ? <div className="empty-state-actions">{actions}</div> : null}
     </div>
   )
 }

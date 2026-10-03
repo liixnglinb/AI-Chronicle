@@ -1,4 +1,4 @@
-import { useEffect, type RefObject } from 'react'
+import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react'
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
@@ -40,6 +40,10 @@ export function useFocusTrap(
   active: boolean,
   onClose: () => void,
 ) {
+  const closeRef = useRef(onClose)
+  useLayoutEffect(() => {
+    closeRef.current = onClose
+  }, [onClose])
   useEffect(() => {
     if (!active) return undefined
     const node = containerRef.current
@@ -65,14 +69,19 @@ export function useFocusTrap(
 
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') {
+        event.preventDefault()
         event.stopPropagation()
-        onClose()
+        closeRef.current()
         return
       }
       if (event.key !== 'Tab') return
 
       const list = focusables()
-      if (list.length === 0) return
+      if (list.length === 0) {
+        event.preventDefault()
+        node!.focus()
+        return
+      }
 
       const first = list[0]
       const last = list[list.length - 1]
@@ -80,7 +89,10 @@ export function useFocusTrap(
       if (event.shiftKey && document.activeElement === first) {
         event.preventDefault()
         last.focus()
-      } else if (!event.shiftKey && document.activeElement === last) {
+      } else if (
+        !event.shiftKey &&
+        (document.activeElement === last || !node!.contains(document.activeElement))
+      ) {
         event.preventDefault()
         first.focus()
       }
@@ -95,5 +107,5 @@ export function useFocusTrap(
         restoreTarget.focus?.()
       }
     }
-  }, [active, containerRef, onClose])
+  }, [active, containerRef])
 }

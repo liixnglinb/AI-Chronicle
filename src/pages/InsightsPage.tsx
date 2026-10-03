@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { Cpu, Flame, FolderKanban, FolderOpen, Timer } from 'lucide-react'
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { useChronicle } from '../lib/store'
@@ -17,6 +17,7 @@ import { ChartTooltip } from '../components/ChartTooltip'
 import { classNames } from '../lib/utils'
 import type { SessionRecord, ToastMessage } from '../types'
 import { ICON_SIZE } from '../lib/ui'
+import { useViewState } from '../lib/useViewState'
 
 interface InsightsPageProps {
   onToast: (toast: Omit<ToastMessage, 'id'>) => void
@@ -40,7 +41,11 @@ interface MetricGroup {
 
 export function InsightsPage({ onToast }: InsightsPageProps) {
   const { data, loading, isDesktop } = useChronicle()
-  const [range, setRange] = useState<InsightRange>(14)
+  const [range, setRange] = useViewState<InsightRange>(
+    'insights-range',
+    14,
+    (v): v is InsightRange => v === 7 || v === 14 || v === 30,
+  )
 
   const sessions = useMemo(() => {
     const minTime = Date.now() - range * 86_400_000
@@ -174,6 +179,7 @@ export function InsightsPage({ onToast }: InsightsPageProps) {
                 type="button"
                 className={classNames(range === value && 'segmented-active')}
                 onClick={() => setRange(value)}
+                aria-pressed={range === value}
               >
                 {value} 天
               </button>
@@ -275,6 +281,37 @@ export function InsightsPage({ onToast }: InsightsPageProps) {
                   </BarChart>
                 </ResponsiveContainer>
               </div>
+              <details className="chart-data-details">
+                <summary>查看每日节奏明细</summary>
+                <div
+                  className="chart-data-table"
+                  role="region"
+                  aria-label="每日节奏明细"
+                  tabIndex={0}
+                >
+                  <table>
+                    <caption>与上方图表相同周期的精确数值</caption>
+                    <thead>
+                      <tr>
+                        <th scope="col">日期</th>
+                        <th scope="col">会话</th>
+                        <th scope="col">轮次</th>
+                        <th scope="col">产出</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {daily.map((point) => (
+                        <tr key={point.day}>
+                          <th scope="row">{point.day}</th>
+                          <td>{point.sessions}</td>
+                          <td>{point.turns}</td>
+                          <td>{point.artifacts}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </details>
             </section>
 
             <section className="chart-panel">

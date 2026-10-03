@@ -20,6 +20,7 @@ import { useChronicle } from '../lib/store'
 import { formatClock } from '../lib/format'
 import type { ToastMessage, ViewId } from '../types'
 import { ICON_SIZE } from '../lib/ui'
+import { DataStateBanner } from './DataStateBanner'
 
 interface AppShellProps {
   activeView: ViewId
@@ -396,6 +397,7 @@ export function AppShell({
           </header>
 
           <main className="content" id="main-content" tabIndex={-1}>
+            <DataStateBanner onSources={() => navigate('sources')} />
             {children}
           </main>
 

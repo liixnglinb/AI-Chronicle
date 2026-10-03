@@ -90,19 +90,22 @@ export function ConfirmDialog({
   onCancel,
 }: ConfirmDialogProps) {
   const cardRef = useRef<HTMLDivElement>(null)
-  useFocusTrap(cardRef, true, onCancel)
+  useFocusTrap(cardRef, true, () => {
+    if (!loading) onCancel()
+  })
 
   return (
     <div
       className="modal-overlay"
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onCancel()
+        if (!loading && event.target === event.currentTarget) onCancel()
       }}
     >
       <div
         className="modal"
         ref={cardRef}
         role="alertdialog"
+        aria-busy={loading}
         aria-modal="true"
         aria-label={title}
         tabIndex={-1}

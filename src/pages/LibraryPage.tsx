@@ -24,9 +24,12 @@ import { classNames } from '../lib/utils'
 import type { ArtifactRecord } from '../types'
 import type { LucideIcon } from 'lucide-react'
 import { ICON_SIZE } from '../lib/ui'
+import { useViewState, isFilter } from '../lib/useViewState'
+import { Button } from '../components/Button'
 
 interface LibraryPageProps {
   searchQuery: string
+  onClearSearch: () => void
 }
 
 type ArtifactKind = 'all' | 'code' | 'doc' | 'image' | 'video' | 'data'
@@ -117,18 +120,27 @@ function iconForExt(name: string): { Icon: LucideIcon; tone: string } {
 }
 
 function formatSize(bytes: number): string {
-  if (bytes >= 1048576) return `${(bytes / 1048576).toFixed(1)} MB`
-  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`
+  if (!Number.isFinite(bytes)) return '未知'
+  if (bytes >= 1048576) return `${(bytes / 1048576).toFixed(1)} MiB`
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KiB`
   return `${bytes} B`
 }
 
-export function LibraryPage({ searchQuery }: LibraryPageProps) {
+export function LibraryPage({ searchQuery, onClearSearch }: LibraryPageProps) {
   const { data, loading, isDesktop } = useChronicle()
   const [openPath, setOpenPath] = useState<string | null>(null)
-  const [kind, setKind] = useState<ArtifactKind>('all')
-  const [projectFilter, setProjectFilter] = useState('all')
-  const [toolFilter, setToolFilter] = useState('all')
-  const [sort, setSort] = useState<ArtifactSort>('recent')
+  const [kind, setKind] = useViewState<ArtifactKind>(
+    'library-kind',
+    'all',
+    (v): v is ArtifactKind => ['all', 'code', 'doc', 'image', 'video', 'data'].includes(String(v)),
+  )
+  const [projectFilter, setProjectFilter] = useViewState('library-project', 'all', isFilter)
+  const [toolFilter, setToolFilter] = useViewState('library-tool', 'all', isFilter)
+  const [sort, setSort] = useViewState<ArtifactSort>(
+    'library-sort',
+    'recent',
+    (v): v is ArtifactSort => v === 'recent' || v === 'name' || v === 'size',
+  )
 
   const rows = useMemo<ArtifactRow[]>(() => {
     const list: ArtifactRow[] = []
@@ -179,7 +191,7 @@ export function LibraryPage({ searchQuery }: LibraryPageProps) {
     const result = rows.filter((row) => {
       if (kind !== 'all' && row.kind !== kind) return false
       if (projectFilter !== 'all' && row.project !== projectFilter) return false
-      if (toolFilter !== 'all' && row.tool !== toolFilter) return false
+      if (toolFilter !== 'all' && row.toolName !== toolFilter) return false
       if (!query) return true
       return (
         row.name.toLowerCase().includes(query) ||
@@ -290,6 +302,7 @@ export function LibraryPage({ searchQuery }: LibraryPageProps) {
               type="button"
               className={classNames('filter-chip', kind === value && 'filter-chip-active')}
               onClick={() => setKind(value)}
+              aria-pressed={kind === value}
             >
               {label}
             </button>
@@ -328,6 +341,7 @@ export function LibraryPage({ searchQuery }: LibraryPageProps) {
                 type="button"
                 className={classNames(sort === value && 'segmented-active')}
                 onClick={() => setSort(value)}
+                aria-pressed={sort === value}
               >
                 {label}
               </button>
@@ -342,6 +356,18 @@ export function LibraryPage({ searchQuery }: LibraryPageProps) {
         <EmptyState
           title="没有匹配的成果"
           description="成果是会话时间窗内项目目录里被实际改动的文件。调整筛选条件后重试，或产生新会话后点「重新采集」。"
+          actions={
+            <Button
+              onClick={() => {
+                setKind('all')
+                setProjectFilter('all')
+                setToolFilter('all')
+                onClearSearch()
+              }}
+            >
+              清除筛选与搜索
+            </Button>
+          }
         />
       )}
 

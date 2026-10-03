@@ -11,9 +11,12 @@ import { SkeletonPage } from '../components/Skeleton'
 import { classNames } from '../lib/utils'
 import type { SessionRecord } from '../types'
 import { ICON_SIZE } from '../lib/ui'
+import { useViewState, isFilter, isOpenGroup } from '../lib/useViewState'
+import { Button } from '../components/Button'
 
 interface HistoryPageProps {
   searchQuery: string
+  onClearSearch: () => void
 }
 
 type DateRange = 7 | 30 | 0
@@ -26,11 +29,15 @@ const RANGE_OPTIONS: Array<[string, string]> = [
   ['7', '近 7 天'],
 ]
 
-export function HistoryPage({ searchQuery }: HistoryPageProps) {
+export function HistoryPage({ searchQuery, onClearSearch }: HistoryPageProps) {
   const { data, loading, isDesktop } = useChronicle()
-  const [openDay, setOpenDay] = useState<string | null>(null)
-  const [range, setRange] = useState<DateRange>(0)
-  const [toolFilter, setToolFilter] = useState('all')
+  const [openDay, setOpenDay] = useViewState<string | null>('history-open', null, isOpenGroup)
+  const [range, setRange] = useViewState<DateRange>(
+    'history-range',
+    0,
+    (v): v is DateRange => v === 0 || v === 7 || v === 30,
+  )
+  const [toolFilter, setToolFilter] = useViewState('history-tool', 'all', isFilter)
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
 
   const tools = useMemo(() => {
@@ -48,7 +55,7 @@ export function HistoryPage({ searchQuery }: HistoryPageProps) {
     const minTime = range ? Date.now() - range * 86_400_000 : 0
     return (data?.sessions ?? [])
       .filter((s) => {
-        if (toolFilter !== 'all' && s.tool !== toolFilter) return false
+        if (toolFilter !== 'all' && s.toolName !== toolFilter) return false
         if (minTime && (s.start || 0) < minTime) return false
         if (!query) return true
         return (
@@ -67,8 +74,7 @@ export function HistoryPage({ searchQuery }: HistoryPageProps) {
       { sessions: SessionRecord[]; tools: Map<string, { name: string; color: string }> }
     >()
     for (const s of filteredSessions) {
-      if (!s.start) continue
-      const key = dayKeyOf(s.start)
+      const key = s.start ? dayKeyOf(s.start) : 'unknown'
       let day = map.get(key)
       if (!day) {
         day = { sessions: [], tools: new Map() }
@@ -79,7 +85,9 @@ export function HistoryPage({ searchQuery }: HistoryPageProps) {
         day.tools.set(s.tool, { name: s.toolName, color: s.toolColor })
       }
     }
-    const keys = [...map.keys()].sort((a, b) => (a < b ? 1 : -1)).slice(0, visibleCount)
+    const keys = [...map.keys()]
+      .sort((a, b) => (a === 'unknown' ? 1 : b === 'unknown' ? -1 : a < b ? 1 : -1))
+      .slice(0, visibleCount)
     return keys.map((key) => {
       const day = map.get(key)!
       const sessions = [...day.sessions].sort((a, b) => (b.start || 0) - (a.start || 0))
@@ -94,8 +102,7 @@ export function HistoryPage({ searchQuery }: HistoryPageProps) {
 
   // 有记录的天数（用于「继续加载」的剩余计数）
   const totalDays = useMemo(
-    () =>
-      new Set(filteredSessions.filter((s) => s.start).map((s) => dayKeyOf(s.start as number))).size,
+    () => new Set(filteredSessions.map((s) => (s.start ? dayKeyOf(s.start) : 'unknown'))).size,
     [filteredSessions],
   )
   const remainingDays = Math.max(0, totalDays - days.length)
@@ -125,6 +132,7 @@ export function HistoryPage({ searchQuery }: HistoryPageProps) {
             <button
               key={value}
               type="button"
+              aria-pressed={range.toString() === value}
               className={classNames(
                 'filter-chip',
                 range.toString() === value && 'filter-chip-active',
@@ -141,6 +149,7 @@ export function HistoryPage({ searchQuery }: HistoryPageProps) {
         <div className="filter-chip-scroll">
           <button
             type="button"
+            aria-pressed={toolFilter === 'all'}
             className={classNames('filter-chip', toolFilter === 'all' && 'filter-chip-active')}
             onClick={() => {
               setToolFilter('all')
@@ -153,6 +162,7 @@ export function HistoryPage({ searchQuery }: HistoryPageProps) {
             <button
               key={tool.name}
               type="button"
+              aria-pressed={toolFilter === tool.name}
               className={classNames(
                 'filter-chip',
                 toolFilter === tool.name && 'filter-chip-active',
@@ -175,6 +185,18 @@ export function HistoryPage({ searchQuery }: HistoryPageProps) {
         <EmptyState
           title="没有匹配的会话档案"
           description="调整时间范围、软件筛选或顶部搜索词后重试。"
+          actions={
+            <Button
+              onClick={() => {
+                setRange(0)
+                setToolFilter('all')
+                setVisibleCount(PAGE_SIZE)
+                onClearSearch()
+              }}
+            >
+              清除筛选与搜索
+            </Button>
+          }
         />
       )}
 
@@ -193,7 +215,7 @@ export function HistoryPage({ searchQuery }: HistoryPageProps) {
                 aria-expanded={open}
               >
                 <div className="history-day-title">
-                  <strong>{formatDayLabel(day.key)}</strong>
+                  <strong>{day.key === 'unknown' ? '日期未知' : formatDayLabel(day.key)}</strong>
                   <span className="history-day-meta">
                     {day.sessions.length} 会话
                     {day.minutes > 0 && ` · 累计 ${formatDuration(day.minutes)}`}

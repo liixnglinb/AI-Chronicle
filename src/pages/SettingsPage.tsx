@@ -304,11 +304,12 @@ export function SettingsPage({ theme, onThemeChange, onToast }: SettingsPageProp
   async function runRescan() {
     setRescanning(true)
     try {
-      await refresh(true)
+      const ok = await refresh(true)
+      if (!ok) return
       onToast({
         tone: 'success',
         title: '已重新采集',
-        message: '全部接入来源已按最新文件重新解析。',
+        message: '采集结果已更新；异常来源可在接入中心查看。',
       })
     } finally {
       setRescanning(false)

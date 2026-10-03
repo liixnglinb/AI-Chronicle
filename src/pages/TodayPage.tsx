@@ -7,7 +7,6 @@ import {
   MessageSquare,
   RefreshCw,
   Repeat,
-  TriangleAlert,
 } from 'lucide-react'
 import { useChronicle } from '../lib/store'
 import { dayKeyOf, formatClock, formatTimeRange, sessionTouchesDay } from '../lib/format'
@@ -28,7 +27,7 @@ interface TodayPageProps {
 }
 
 export function TodayPage({ searchQuery, onToast }: TodayPageProps) {
-  const { data, loading, error, isDesktop, refresh } = useChronicle()
+  const { data, loading, isDesktop, refresh } = useChronicle()
   const [refreshing, setRefreshing] = useState(false)
   const [exporting, setExporting] = useState(false)
 
@@ -151,15 +150,6 @@ export function TodayPage({ searchQuery, onToast }: TodayPageProps) {
       />
 
       {loading && !data && <SkeletonPage cells={5} rows={4} />}
-
-      {error && (
-        <EmptyState
-          tone="error"
-          icon={<TriangleAlert size={ICON_SIZE.lg} />}
-          title="采集失败"
-          description={error}
-        />
-      )}
 
       {data && kpis && (
         <SummaryStrip

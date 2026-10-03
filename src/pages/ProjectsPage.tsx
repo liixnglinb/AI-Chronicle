@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { ChevronDown, FileText, FolderKanban, FolderOpen, Layers, Repeat } from 'lucide-react'
 import { useChronicle } from '../lib/store'
 import { dayKeyOf, formatDayLabelShort, formatTimeRange } from '../lib/format'
@@ -13,9 +13,12 @@ import { SkeletonPage } from '../components/Skeleton'
 import { classNames } from '../lib/utils'
 import type { SessionRecord, ToastMessage } from '../types'
 import { ICON_SIZE } from '../lib/ui'
+import { useViewState, isFilter, isOpenGroup } from '../lib/useViewState'
+import { Button } from '../components/Button'
 
 interface ProjectsPageProps {
   searchQuery: string
+  onClearSearch: () => void
   onToast: (toast: Omit<ToastMessage, 'id'>) => void
 }
 
@@ -46,12 +49,24 @@ const SORT_OPTIONS: Array<[ProjectSort, string]> = [
   ['artifacts', '产出'],
 ]
 
-export function ProjectsPage({ searchQuery, onToast }: ProjectsPageProps) {
+export function ProjectsPage({ searchQuery, onClearSearch, onToast }: ProjectsPageProps) {
   const { data, loading, isDesktop } = useChronicle()
-  const [openProject, setOpenProject] = useState<string | null>(null)
-  const [range, setRange] = useState<ProjectRange>(0)
-  const [toolFilter, setToolFilter] = useState('all')
-  const [sort, setSort] = useState<ProjectSort>('recent')
+  const [openProject, setOpenProject] = useViewState<string | null>(
+    'projects-open',
+    null,
+    isOpenGroup,
+  )
+  const [range, setRange] = useViewState<ProjectRange>(
+    'projects-range',
+    0,
+    (v): v is ProjectRange => v === 0 || v === 7 || v === 30,
+  )
+  const [toolFilter, setToolFilter] = useViewState('projects-tool', 'all', isFilter)
+  const [sort, setSort] = useViewState<ProjectSort>(
+    'projects-sort',
+    'recent',
+    (v): v is ProjectSort => v === 'recent' || v === 'sessions' || v === 'artifacts',
+  )
 
   const tools = useMemo(() => {
     const map = new Map<string, { name: string; color: string; count: number }>()
@@ -71,7 +86,7 @@ export function ProjectsPage({ searchQuery, onToast }: ProjectsPageProps) {
 
     for (const s of data?.sessions ?? []) {
       if (minTime && (s.start || 0) < minTime) continue
-      if (toolFilter !== 'all' && s.tool !== toolFilter) continue
+      if (toolFilter !== 'all' && s.toolName !== toolFilter) continue
       if (
         query &&
         !s.title.toLowerCase().includes(query) &&
@@ -202,6 +217,7 @@ export function ProjectsPage({ searchQuery, onToast }: ProjectsPageProps) {
                 range.toString() === value && 'filter-chip-active',
               )}
               onClick={() => setRange((value === '0' ? 0 : Number(value)) as ProjectRange)}
+              aria-pressed={range.toString() === value}
             >
               {label}
             </button>
@@ -212,6 +228,7 @@ export function ProjectsPage({ searchQuery, onToast }: ProjectsPageProps) {
             type="button"
             className={classNames('filter-chip', toolFilter === 'all' && 'filter-chip-active')}
             onClick={() => setToolFilter('all')}
+            aria-pressed={toolFilter === 'all'}
           >
             全部软件
           </button>
@@ -224,6 +241,7 @@ export function ProjectsPage({ searchQuery, onToast }: ProjectsPageProps) {
                 toolFilter === tool.name && 'filter-chip-active',
               )}
               onClick={() => setToolFilter(tool.name)}
+              aria-pressed={toolFilter === tool.name}
             >
               <span className="tool-dot" style={{ ['--tool-color' as string]: tool.color }} />
               {tool.name} · {tool.count}
@@ -237,6 +255,7 @@ export function ProjectsPage({ searchQuery, onToast }: ProjectsPageProps) {
               type="button"
               className={classNames(sort === value && 'segmented-active')}
               onClick={() => setSort(value)}
+              aria-pressed={sort === value}
             >
               {label}
             </button>
@@ -250,6 +269,17 @@ export function ProjectsPage({ searchQuery, onToast }: ProjectsPageProps) {
         <EmptyState
           title="没有匹配的项目"
           description="调整时间范围、软件筛选或顶部搜索词后重试。"
+          actions={
+            <Button
+              onClick={() => {
+                setRange(0)
+                setToolFilter('all')
+                onClearSearch()
+              }}
+            >
+              清除筛选与搜索
+            </Button>
+          }
         />
       )}
 

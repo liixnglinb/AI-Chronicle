@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
@@ -40,7 +41,7 @@ interface ChronicleContextValue {
   isDesktop: boolean
   settings: ChronicleSettings
   updateSettings: (settings: Partial<ChronicleSettings>) => void
-  refresh: (force?: boolean) => Promise<void>
+  refresh: (force?: boolean) => Promise<boolean>
   update: {
     state: string
     version?: string
@@ -62,19 +63,30 @@ export function ChronicleProvider({ children }: { children: ReactNode }) {
   const [update, setUpdate] = useState<ChronicleContextValue['update']>(null)
   const [settings, setSettings] = useState<ChronicleSettings>(loadSettings)
   const isDesktop = !!window.desktopAPI
+  const inFlight = useRef<Promise<boolean> | null>(null)
 
-  const load = useCallback(async (force = false) => {
-    if (!window.desktopAPI) return
+  const load = useCallback((force = false): Promise<boolean> => {
+    if (!window.desktopAPI) return Promise.resolve(false)
+    if (inFlight.current) return inFlight.current
     setLoading(true)
     setError(null)
-    try {
-      const result = await window.desktopAPI.ingest(force)
-      setData(result)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setLoading(false)
-    }
+    const operation = (async () => {
+      // Defer the bridge call until the in-flight promise is assigned, even if it throws synchronously.
+      await Promise.resolve()
+      try {
+        const result = await window.desktopAPI!.ingest(force)
+        setData(result)
+        return true
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err))
+        return false
+      } finally {
+        setLoading(false)
+        inFlight.current = null
+      }
+    })()
+    inFlight.current = operation
+    return operation
   }, [])
 
   useEffect(() => {
@@ -94,13 +106,14 @@ export function ChronicleProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!isDesktop) return undefined
     const onFocus = () => {
+      if (document.hidden) return
       void load(false)
     }
     const interval = settings.autoRefreshSeconds
     if (!interval) return undefined
 
     const timer = window.setInterval(() => {
-      void load(false)
+      onFocus()
     }, interval * 1000)
     window.addEventListener('focus', onFocus)
     document.addEventListener('visibilitychange', onFocus)
