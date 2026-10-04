@@ -1,114 +1,139 @@
-import { useMemo, useState } from 'react'
-import {
-  Clock,
-  Download,
-  FileText,
-  LayoutGrid,
-  MessageSquare,
-  RefreshCw,
-  Repeat,
-} from 'lucide-react'
+import { useMemo } from 'react'
+import { Download, ExternalLink, FileCode, Sparkles } from 'lucide-react'
 import { useChronicle } from '../lib/store'
-import { dayKeyOf, formatClock, formatTimeRange, sessionTouchesDay } from '../lib/format'
+import {
+  dayKeyOf,
+  formatClock,
+  formatDuration,
+  formatTimeRange,
+  sessionDurationMinutes,
+  sessionTouchesDay,
+} from '../lib/format'
 import { buildDailyReport, buildWorkSummary } from '../lib/summary'
-import { saveText } from '../lib/desktop'
-import { PageHeader } from '../components/PageHeader'
+import { projectDisplayName } from '../lib/paths'
+import { openLocalPath, saveText } from '../lib/desktop'
 import { EmptyState, DesktopOnlyPage } from '../components/EmptyState'
-import { SummaryStrip } from '../components/SummaryStrip'
-import { Badge } from '../components/Badge'
-import { Button } from '../components/Button'
 import { SkeletonPage } from '../components/Skeleton'
 import type { ToastMessage } from '../types'
-import { ICON_SIZE } from '../lib/ui'
 
 interface TodayPageProps {
   searchQuery: string
   onToast: (toast: Omit<ToastMessage, 'id'>) => void
 }
 
+/**
+ * 今日工作台：三层穿透结构。
+ *   层级 1（决策顶栏）今日一句话结论 + 指标微型矩阵
+ *   层级 2（成果透镜）  最新改动文件，可直接打开
+ *   层级 3（项目聚合）  按工作目录折叠群 + 一键导出日报
+ * 目标是把「今天干了什么」压缩到一屏内可读完，而不是流水账。
+ */
 export function TodayPage({ searchQuery, onToast }: TodayPageProps) {
-  const { data, loading, isDesktop, refresh } = useChronicle()
-  const [refreshing, setRefreshing] = useState(false)
-  const [exporting, setExporting] = useState(false)
+  const { data, loading, isDesktop } = useChronicle()
 
-  const today = useMemo(() => {
-    const key = dayKeyOf(Date.now())
-    const all = data?.sessions ?? []
-    return all
-      .filter((s) => sessionTouchesDay(s, key))
+  const todayKey = useMemo(() => dayKeyOf(Date.now()), [])
+
+  const todaySessions = useMemo(() => {
+    return (data?.sessions ?? [])
+      .filter((s) => sessionTouchesDay(s, todayKey))
       .sort((a, b) => (b.start || 0) - (a.start || 0))
-  }, [data])
+  }, [data, todayKey])
 
-  const filtered = useMemo(() => {
+  const workSummary = useMemo(() => buildWorkSummary(todaySessions), [todaySessions])
+
+  // 层级 3 的过滤：按项目名 / 核心事项 / 工具名匹配当前视图的搜索词
+  const filteredSummary = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
-    if (!q) return today
-    return today.filter(
-      (s) =>
-        s.title.toLowerCase().includes(q) ||
-        s.project.toLowerCase().includes(q) ||
-        s.toolName.toLowerCase().includes(q),
+    if (!q) return workSummary
+    return workSummary.filter(
+      (w) =>
+        w.project.toLowerCase().includes(q) ||
+        w.path.toLowerCase().includes(q) ||
+        w.focus.toLowerCase().includes(q) ||
+        w.tools.some((t) => t.toLowerCase().includes(q)),
     )
-  }, [today, searchQuery])
+  }, [workSummary, searchQuery])
 
-  const toolSummary = useMemo(() => {
-    const map = new Map<string, { name: string; color: string; count: number }>()
-    for (const s of today) {
-      const cur = map.get(s.tool) || { name: s.toolName, color: s.toolColor, count: 0 }
-      cur.count += 1
-      map.set(s.tool, cur)
+  // 层级 2：最新 6 个改动文件（按 mtime 倒序，同一路径只取一次）
+  const todayArtifacts = useMemo(() => {
+    const seen = new Set<string>()
+    const list: Array<{
+      name: string
+      path: string
+      mtime: number
+      project: string
+      toolColor: string
+    }> = []
+    const all: Array<{
+      name: string
+      path: string
+      mtime: number
+      project: string
+      toolColor: string
+    }> = []
+    for (const s of todaySessions) {
+      for (const a of s.artifacts ?? []) {
+        all.push({
+          name: a.name,
+          path: a.path,
+          mtime: a.mtime,
+          project: projectDisplayName(s.projectPath || s.project),
+          toolColor: s.toolColor,
+        })
+      }
     }
-    return [...map.values()].sort((a, b) => b.count - a.count)
-  }, [today])
-
-  const workSummary = useMemo(() => buildWorkSummary(filtered), [filtered])
+    all.sort((a, b) => b.mtime - a.mtime)
+    for (const item of all) {
+      if (seen.has(item.path)) continue
+      seen.add(item.path)
+      list.push(item)
+      if (list.length >= 6) break
+    }
+    return list
+  }, [todaySessions])
 
   const kpis = useMemo(() => {
-    if (!today.length) return null
-    const turns = today.reduce((sum, s) => sum + s.turns, 0)
-    const artifacts = new Set<string>()
-    for (const s of today) {
-      for (const a of s.artifacts ?? []) artifacts.add(a.path)
+    if (todaySessions.length === 0) return null
+    const toolCount = new Set(todaySessions.map((s) => s.tool)).size
+    const turns = todaySessions.reduce((sum, s) => sum + s.turns, 0)
+    const artifactPaths = new Set<string>()
+    for (const s of todaySessions) {
+      for (const a of s.artifacts ?? []) artifactPaths.add(a.path)
     }
-    const starts = today.map((s) => s.start as number)
-    const ends = today.map((s) => (s.end || s.start) as number)
+    const starts = todaySessions.map((s) => s.start).filter((v): v is number => v !== null)
+    const ends = todaySessions.map((s) => s.end || s.start).filter((v): v is number => v !== null)
+    const activeMinutes = todaySessions.reduce((sum, s) => sum + sessionDurationMinutes(s), 0)
+    const first = starts.length ? Math.min(...starts) : null
+    const last = ends.length ? Math.max(...ends) : null
+    const spanMinutes = first !== null && last !== null ? Math.round((last - first) / 60_000) : 0
     return {
-      artifacts: artifacts.size,
+      toolCount,
       turns,
-      first: formatClock(Math.min(...starts)),
-      last: formatClock(Math.max(...ends)),
-      tools: toolSummary.length,
+      artifacts: artifactPaths.size,
+      projects: workSummary.length,
+      first: first === null ? '—' : formatClock(first),
+      last: last === null ? '—' : formatClock(last),
+      span: formatDuration(spanMinutes) || '—',
+      active: formatDuration(activeMinutes) || '—',
     }
-  }, [today, toolSummary])
+  }, [todaySessions, workSummary])
 
-  const dateLabel = new Date().toLocaleDateString('zh-CN', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    weekday: 'long',
-  })
+  // 所有项目路径，用于计算唯一后缀（Monorepo 撞名消歧）
+  const allProjectPaths = useMemo(
+    () => (data?.sessions ?? []).map((s) => s.projectPath || s.project).filter(Boolean),
+    [data],
+  )
 
-  async function runRefresh() {
-    setRefreshing(true)
-    try {
-      await refresh(true)
-    } finally {
-      setRefreshing(false)
-    }
-  }
-
-  async function exportReport() {
-    setExporting(true)
-    try {
-      const md = buildDailyReport([...today].reverse())
-      const result = await saveText(`AI工作日报-${dayKeyOf(Date.now())}.md`, md)
-      onToast({
-        tone: result.ok ? 'success' : 'warning',
-        title: result.ok ? '日报已导出' : '导出未完成',
-        message: result.message ?? '',
-      })
-    } finally {
-      setExporting(false)
-    }
+  async function handleExport() {
+    if (todaySessions.length === 0) return
+    const md = buildDailyReport([...todaySessions].reverse())
+    const fileName = `AI工作日报-${todayKey}.md`
+    const result = await saveText(fileName, md)
+    onToast(
+      result.ok
+        ? { tone: 'success', title: '日报导出成功', message: `文件已写入：${fileName}` }
+        : { tone: 'warning', title: '导出未完成', message: result.message ?? '请重试' },
+    )
   }
 
   if (!isDesktop) {
@@ -120,142 +145,160 @@ export function TodayPage({ searchQuery, onToast }: TodayPageProps) {
     )
   }
 
-  return (
-    <div className="page">
-      <PageHeader
-        kicker={dateLabel}
-        title="今日工作台"
+  if (loading && !data) return <SkeletonPage cards={4} rows={4} />
+
+  if (data && todaySessions.length === 0) {
+    const connected = data.sources.filter((s) => s.status === 'connected').length
+    return (
+      <EmptyState
+        title="今日暂无 AI 工作轨迹"
+        description={`当前已接入 ${connected} 个软件。启动 Codex、Claude Code 或 WorkBuddy 进行编码，本地会话将在此实时聚合。`}
         actions={
-          <>
-            <Button
-              variant="secondary"
-              icon={<RefreshCw size={ICON_SIZE.sm} />}
-              loading={refreshing}
-              onClick={() => void runRefresh()}
-            >
-              重新采集
-            </Button>
-            {today.length > 0 && (
-              <Button
-                variant="primary"
-                icon={<Download size={ICON_SIZE.sm} />}
-                loading={exporting}
-                onClick={() => void exportReport()}
-              >
-                导出日报
-              </Button>
-            )}
-          </>
+          <button onClick={() => void handleExport()} className="desk-btn-secondary" disabled>
+            <Download size={13} />
+            <span>导出 Markdown 日报</span>
+          </button>
         }
       />
+    )
+  }
 
-      {loading && !data && <SkeletonPage cells={5} rows={4} />}
+  return (
+    <div className="desk-today-grid">
+      {/* ---------- 层级 1：决策顶栏 ---------- */}
+      <div className="desk-panel desk-kpi-banner desk-enter">
+        <div className="desk-kpi-main">
+          <span className="desk-kpi-tag">
+            <Sparkles size={13} />
+            <span>今日工作概况</span>
+          </span>
+          <h2 className="desk-kpi-lead">
+            {kpis
+              ? `共调用 ${kpis.toolCount} 款 AI 工具，在 ${kpis.projects} 个工作目录完成 ${todaySessions.length} 场会话。`
+              : '今日暂无会话'}
+          </h2>
+          {kpis && (
+            <div className="desk-kpi-matrix">
+              <div className="desk-kpi-cell">
+                <small>会话数</small>
+                <strong>{todaySessions.length}</strong>
+              </div>
+              <div className="desk-kpi-cell">
+                <small>交互轮次</small>
+                <strong>{kpis.turns}</strong>
+              </div>
+              <div className="desk-kpi-cell">
+                <small>改动文件</small>
+                <strong>{kpis.artifacts}</strong>
+              </div>
+              <div className="desk-kpi-cell">
+                <small>活跃时段</small>
+                <strong>
+                  {kpis.first}–{kpis.last}
+                </strong>
+              </div>
+              <div className="desk-kpi-cell">
+                <small>跨度 / 有效</small>
+                <strong>
+                  {kpis.span} · {kpis.active}
+                </strong>
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="desk-kpi-actions">
+          <button onClick={() => void handleExport()} className="desk-btn-primary">
+            <Download size={13} />
+            <span>导出 Markdown 日报</span>
+          </button>
+        </div>
+      </div>
 
-      {data && kpis && (
-        <SummaryStrip
-          items={[
-            {
-              key: 'sessions',
-              label: '今日会话',
-              value: today.length,
-              icon: <MessageSquare size={ICON_SIZE.sm} />,
-              tone: 'primary',
-            },
-            {
-              key: 'tools',
-              label: '使用软件',
-              value: kpis.tools,
-              icon: <LayoutGrid size={ICON_SIZE.sm} />,
-            },
-            {
-              key: 'turns',
-              label: '对话轮次',
-              value: kpis.turns,
-              icon: <Repeat size={ICON_SIZE.sm} />,
-            },
-            {
-              key: 'artifacts',
-              label: '产出文件',
-              value: kpis.artifacts,
-              icon: <FileText size={ICON_SIZE.sm} />,
-            },
-            {
-              key: 'span',
-              label: '活跃时段',
-              value: `${kpis.first} – ${kpis.last}`,
-              icon: <Clock size={ICON_SIZE.sm} />,
-              compact: true,
-            },
-          ]}
-        />
-      )}
-
-      {data && toolSummary.length > 0 && (
-        <div className="tool-summary-row">
-          {toolSummary.map((t) => (
-            <Badge key={t.name} title={`${t.name} · ${t.count} 会话`}>
-              <span className="tool-chip-dot" style={{ background: t.color }} />
-              {t.name} · {t.count} 会话
-            </Badge>
-          ))}
+      {/* ---------- 层级 2：成果透镜 ---------- */}
+      {todayArtifacts.length > 0 && (
+        <div className="desk-panel desk-artifacts-deck desk-enter">
+          <div className="desk-section-head">
+            <span className="desk-panel-title">
+              <FileCode size={14} />
+              <span>实时改动产出</span>
+              <small>由会话窗口捕获的被编辑代码与文件</small>
+            </span>
+          </div>
+          <div className="desk-artifact-chips">
+            {todayArtifacts.map((art) => (
+              <button
+                key={art.path}
+                className="desk-artifact-chip"
+                onClick={() => void openLocalPath(art.path)}
+                title={art.path}
+              >
+                <FileCode size={13} style={{ color: art.toolColor }} />
+                <span className="desk-chip-name">{art.name}</span>
+                <span className="desk-chip-proj">({art.project})</span>
+                <ExternalLink size={10} className="desk-chip-open" />
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
-      {data && workSummary.length > 0 && (
-        <section className="session-section">
-          <div className="section-title-row">
-            <span className="eyebrow">今天做了什么</span>
-            <span className="result-count">按工作目录归组 · 只显示工作结论与产出</span>
-          </div>
-          <div className="work-summary">
-            {workSummary.map((item) => (
-              <article className="summary-tool" key={item.key}>
-                <div className="summary-tool-head">
-                  <strong>{item.project}</strong>
-                  <small>{item.focus}</small>
+      {/* ---------- 层级 3：项目聚合折叠群 ---------- */}
+      <div className="desk-project-summary-list">
+        {filteredSummary.map((item) => {
+          const display = projectDisplayName(item.path, allProjectPaths)
+          return (
+            <div key={item.key} className="desk-panel desk-summary-card desk-enter">
+              <div className="desk-summary-card-head">
+                <div className="desk-summary-id">
+                  <span className="desk-summary-proj">{display}</span>
+                  <span className="desk-summary-path" title={item.path}>
+                    {item.path}
+                  </span>
                 </div>
-                <div className="summary-folder">
-                  <div className="summary-folder-path">
-                    <strong>
-                      {item.count} 个会话 · {item.turns} 轮
-                    </strong>
-                    <span>{item.tools.join(' / ')}</span>
-                    <small>
-                      {item.first && item.last ? formatTimeRange(item.first, item.last) : ''}
-                    </small>
-                  </div>
-                  <p className="summary-conclusion">
-                    在 <strong>{item.project}</strong> 中推进{item.focus}
-                    {item.artifactCount > 0
-                      ? `，累计处理 ${item.artifactCount} 个产出文件。`
-                      : '。'}
-                  </p>
-                  {item.artifactNames.length > 0 && (
-                    <ul className="summary-points">
-                      {item.artifactNames.slice(0, 4).map((name) => (
-                        <li key={name} title={name}>
-                          {name}
-                        </li>
-                      ))}
-                    </ul>
+                <div className="desk-summary-meta">
+                  <span className="desk-meta-badge">{item.count} 次会话</span>
+                  <span className="desk-meta-badge">{item.turns} 轮交互</span>
+                  {item.artifactCount > 0 && (
+                    <span className="desk-meta-badge">{item.artifactCount} 个产出</span>
                   )}
                 </div>
-              </article>
-            ))}
-          </div>
-        </section>
-      )}
+              </div>
 
-      {data && !loading && today.length === 0 && (
-        <EmptyState
-          title="今天还没有会话记录"
-          description={`去 Codex、Claude Code、ZCode、WorkBuddy 等已接入的软件里干点活，回来点「重新采集」就能看到。当前已接入 ${data.sources.filter((x) => x.status === 'connected').length} 个软件。`}
-        />
-      )}
+              <div className="desk-summary-focus">
+                <strong>核心事项：</strong>
+                <span>{item.focus}</span>
+                {item.first !== null && item.last !== null && (
+                  <span className="desk-summary-window">
+                    {' '}
+                    · 活跃 {formatTimeRange(item.first, item.last)}
+                  </span>
+                )}
+              </div>
 
-      {data && searchQuery && filtered.length === 0 && today.length > 0 && (
-        <EmptyState title="没有匹配的会话" description="换个关键词，或清空顶部搜索框。" />
-      )}
+              <div className="desk-summary-tools">
+                {item.tools.map((t) => (
+                  <span key={t} className="desk-tool-tag">
+                    {t}
+                  </span>
+                ))}
+                {item.artifactNames.length > 0 && (
+                  <span className="desk-tool-tag">
+                    代表产出：{item.artifactNames.slice(0, 3).join('、')}
+                  </span>
+                )}
+              </div>
+            </div>
+          )
+        })}
+
+        {filteredSummary.length === 0 && searchQuery.trim() && (
+          <EmptyState
+            compact
+            title="没有匹配的项目聚合"
+            description="换个关键词，或清空顶部过滤条件查看今日全部工作目录。"
+          />
+        )}
+      </div>
     </div>
   )
 }

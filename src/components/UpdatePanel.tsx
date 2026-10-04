@@ -1,9 +1,7 @@
 import { useState } from 'react'
 import { RefreshCw } from 'lucide-react'
 import { useChronicle } from '../lib/store'
-import { ICON_SIZE } from '../lib/ui'
 import { Button } from './Button'
-import { Progress } from './Progress'
 import { ConfirmDialog } from './Modal'
 import type { ToastMessage } from '../types'
 
@@ -28,12 +26,12 @@ export function InstallConfirmDialog({
     <ConfirmDialog
       title="安装更新并重启？"
       description={`新版本 v${version} 已下载完成，安装需要退出并重新启动应用。`}
-      details={[
+      impacts={[
         '安装过程会自动完成，重启后即进入新版本',
         '未保存的内容会随退出丢失，请先确认没有正在进行的导出',
         '也可以稍后再装：更新包已就绪，随时可回来点击安装',
       ]}
-      confirmLabel="安装并重启"
+      confirmText="安装并重启"
       loading={loading}
       onConfirm={onConfirm}
       onCancel={onCancel}
@@ -141,9 +139,9 @@ export function UpdatePanel({ onToast }: { onToast: (toast: Omit<ToastMessage, '
   const { state } = actions
 
   return (
-    <div className="update-panel">
-      <div className="update-panel-main">
-        <div className="update-status">
+    <div className="desk-update-panel">
+      <div className="desk-update-main">
+        <div className="desk-update-status">
           <strong>
             {state === 'idle' && '尚未检查'}
             {state === 'unavailable' && '开发模式不检查更新'}
@@ -156,9 +154,9 @@ export function UpdatePanel({ onToast }: { onToast: (toast: Omit<ToastMessage, '
             {state === 'error' && '更新失败'}
           </strong>
           <small>{update?.message || '点按「检查更新」自动测速 GitHub 直连与镜像。'}</small>
-          {update?.source && <small className="update-source">当前下载源：{update.source}</small>}
+          {update?.source && <small>当前下载源：{update.source}</small>}
           {update?.probes && update.probes.length > 0 && (
-            <small className="update-source">
+            <small>
               测速：
               {update.probes
                 .map((probe) => `${probe.label} ${probe.ok ? `${probe.ms}ms` : '不可达'}`)
@@ -167,14 +165,23 @@ export function UpdatePanel({ onToast }: { onToast: (toast: Omit<ToastMessage, '
           )}
 
           {state === 'downloading' && (
-            <div className="update-progress">
-              <Progress value={percent} label={`下载 v${actions.version}`} />
+            <div className="desk-progress-wrap">
+              <div
+                className="desk-progress"
+                role="progressbar"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={Math.round(percent)}
+                aria-label={`下载 v${actions.version}`}
+              >
+                <div className="desk-progress-bar" style={{ width: `${percent}%` }} />
+              </div>
               <small>{percent}%</small>
             </div>
           )}
 
           {update?.notes && (
-            <div className="update-notes">
+            <div className="desk-update-notes">
               {update.notes
                 .split('\n')
                 .filter(Boolean)
@@ -186,10 +193,10 @@ export function UpdatePanel({ onToast }: { onToast: (toast: Omit<ToastMessage, '
           )}
         </div>
 
-        <div className="update-panel-actions">
+        <div className="desk-update-actions">
           <Button
             variant="secondary"
-            icon={<RefreshCw size={ICON_SIZE.sm} />}
+            icon={<RefreshCw size={14} />}
             loading={actions.checking}
             disabled={actions.disabled || state === 'downloading'}
             onClick={() => void actions.checkUpdate()}

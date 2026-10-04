@@ -36,6 +36,60 @@ const MAX_FILE_BYTES = 512 * 1024 * 1024
 const MAX_FILES_PER_SOURCE = 4000
 const SOURCE_BUDGET_MS = 90_000
 
+// ---------------------------------------------------------------- 数据源元信息
+// 采集协议与只读访问方式如实登记，界面据此展示「接入指导」而不是含糊的置灰卡片。
+// protocol: jsonl（逐行 JSON）/ sqlite（只读数据库）/ zstd（压缩 JSONL）/ none（仅探测）
+const SOURCE_META = {
+  'claude-code': {
+    protocol: 'jsonl',
+    access: 'read-only',
+    hint: '~/.claude/projects/<项目>/<会话>.jsonl',
+  },
+  workbuddy: {
+    protocol: 'jsonl',
+    access: 'read-only',
+    hint: '~/.workbuddy/projects/<项目>/<会话>.jsonl',
+  },
+  'workbuddy-ai': {
+    protocol: 'jsonl',
+    access: 'read-only',
+    hint: '~/.workbuddy-ai/projects（5.5+ 迁移目录）',
+  },
+  catpaw: {
+    protocol: 'jsonl',
+    access: 'read-only',
+    hint: '~/.catpaw/projects/<项目>/<会话>.jsonl',
+  },
+  mhagent: { protocol: 'jsonl', access: 'read-only', hint: '%APPDATA%/MHAgent/.claude/projects' },
+  modex: {
+    protocol: 'jsonl',
+    access: 'read-only',
+    hint: '%APPDATA%/ModexData/**/projects/**/*.jsonl',
+  },
+  codex: {
+    protocol: 'jsonl',
+    access: 'read-only',
+    hint: '~/.codex/sessions 与 archived_sessions（按 UUID 去重）',
+  },
+  dsh: {
+    protocol: 'zstd',
+    access: 'read-only',
+    hint: '~/.dsh/sessions/session.jsonl.zstd（内存解压）',
+  },
+  zcode: {
+    protocol: 'sqlite',
+    access: 'read-only',
+    hint: '~/.zcode/cli/db/db.sqlite（DatabaseSync readOnly）',
+  },
+  opencode: {
+    protocol: 'sqlite',
+    access: 'read-only',
+    hint: '~/.local/share/opencode/opencode.db',
+  },
+  hermes: { protocol: 'sqlite', access: 'read-only', hint: '~/.hermes/state.db' },
+  agnes: { protocol: 'sqlite', access: 'read-only', hint: '~/.agnes/data/sessions/sessions.db' },
+}
+
 function expandPath(value) {
   return String(value)
     .replace(/^~(?=$|[\\/])/, HOME)
@@ -1090,13 +1144,76 @@ const OBSERVING_SOURCES = [
   },
 ]
 
+// ---------------------------------------------------------------- 数据源声明路径
+// 与 collectAll 内部实际读取的根目录保持一致，供接入中心展示与「打开所在目录」。
+const SOURCE_PATHS = {
+  'claude-code': ['~/.claude/projects'],
+  workbuddy: ['~/.workbuddy/projects'],
+  'workbuddy-ai': ['~/.workbuddy-ai/projects'],
+  catpaw: ['~/.catpaw/projects'],
+  mhagent: ['%APPDATA%/MHAgent/.claude/projects'],
+  modex: ['%APPDATA%/ModexData'],
+  codex: ['~/.codex/sessions', '~/.codex/archived_sessions'],
+  dsh: ['~/.dsh/sessions'],
+  zcode: ['~/.zcode/cli/db/db.sqlite'],
+  opencode: ['~/.local/share/opencode/opencode.db'],
+  hermes: ['~/.hermes/state.db'],
+  agnes: ['~/.agnes/data/sessions/sessions.db'],
+}
+
 // ================================================================ 主入口
+
+/**
+ * 构造数据源记录：统一补齐名称、协议、只读访问方式与真实探测路径。
+ * 界面（接入中心）直接消费这些字段展示「路径是否存在 / 协议特征 / 接入指导」，
+ * 避免出现只有一句置灰说明的信息黑洞。
+ */
+function sourceRecord(id, patch = {}) {
+  const meta = SOURCE_META[id] || { protocol: 'none', access: 'read-only', hint: '' }
+  const declared = SOURCE_PATHS[id] || []
+  return {
+    id,
+    name: (TOOLS[id] || {}).name || id,
+    kind: patch.kind || 'connected',
+    status: patch.status || 'connected',
+    sessionCount: patch.sessionCount || 0,
+    lastActivity: patch.lastActivity || null,
+    detail: patch.detail || '',
+    note: patch.note || '',
+    protocol: meta.protocol,
+    access: meta.access,
+    hint: meta.hint,
+    paths: declared.map((spec) => {
+      const resolved = expandPath(spec)
+      return { spec, resolved, exists: fs.existsSync(resolved) }
+    }),
+  }
+}
+
+/** 采集阶段回调载荷规范（渲染层据此渲染阶段感知） */
+const PHASES = ['enumerate', 'parse', 'artifacts', 'done']
+
 async function collectAll(options = {}) {
   const cachePath = options.cachePath
+  const onProgress = typeof options.onProgress === 'function' ? options.onProgress : null
   const cache = cachePath ? new IngestCache(cachePath, options.crypto) : null
   const sessions = []
   const sources = []
   const usedCache = { hit: 0, miss: 0 }
+
+  // 阶段感知：全量采集通常 3~15 秒，必须让用户看得见「卡在哪一步」
+  const stage = { index: 0, total: 0 }
+  function report(phase, detail) {
+    if (!onProgress) return
+    if (!PHASES.includes(phase)) return
+    try {
+      onProgress({ phase, detail: detail || '', index: stage.index, total: stage.total })
+    } catch {
+      // 进度回调异常绝不能影响采集本身
+    }
+  }
+  stage.total = 15
+  report('enumerate', '正在枚举本机会话文件…')
 
   async function runFileSource(id, rootSpecs, parser, fileFilter, opts = {}) {
     const state = { deadline: Date.now() + SOURCE_BUDGET_MS, truncated: false }
@@ -1188,16 +1305,11 @@ async function collectAll(options = {}) {
           lastActivity = session.end
         }
       }
-      return {
-        id,
-        name: (TOOLS[id] || {}).name || id,
-        kind: 'connected',
-        status: 'connected',
+      return sourceRecord(id, {
         sessionCount: items.length,
         lastActivity,
         detail: truncated ? '文件数超预算，已按最近文件优先采集' : '',
-        note: '',
-      }
+      })
     }
   }
 
@@ -1244,17 +1356,17 @@ async function collectAll(options = {}) {
         { excludeNames: src.excludeNames, mergeSubagents: true },
       )
       sources.push(meta)
+      stage.index += 1
+      report('parse', `${meta.name}：${meta.sessionCount} 个会话`)
     } catch (err) {
-      sources.push({
-        id: src.id,
-        name: TOOLS[src.id].name,
-        kind: 'connected',
-        status: 'error',
-        sessionCount: 0,
-        lastActivity: null,
-        detail: '解析失败: ' + String(err && err.message).slice(0, 120),
-        note: '',
-      })
+      sources.push(
+        sourceRecord(src.id, {
+          status: 'error',
+          detail: '解析失败: ' + String(err && err.message).slice(0, 120),
+        }),
+      )
+      stage.index += 1
+      report('parse', `${TOOLS[src.id].name}：解析失败`)
     }
   }
 
@@ -1291,27 +1403,23 @@ async function collectAll(options = {}) {
         }
       }
     }
-    sources.push({
-      id: 'modex',
-      name: TOOLS.modex.name,
-      kind: 'connected',
-      status: 'connected',
-      sessionCount: count,
-      lastActivity,
-      detail: '',
-      note: '',
-    })
+    sources.push(
+      sourceRecord('modex', {
+        sessionCount: count,
+        lastActivity,
+      }),
+    )
+    stage.index += 1
+    report('parse', `织流 Loom：${count} 个会话`)
   } catch (err) {
-    sources.push({
-      id: 'modex',
-      name: TOOLS.modex.name,
-      kind: 'connected',
-      status: 'error',
-      sessionCount: 0,
-      lastActivity: null,
-      detail: '解析失败: ' + String(err && err.message).slice(0, 120),
-      note: '',
-    })
+    sources.push(
+      sourceRecord('modex', {
+        status: 'error',
+        detail: '解析失败: ' + String(err && err.message).slice(0, 120),
+      }),
+    )
+    stage.index += 1
+    report('parse', '织流 Loom：解析失败')
   }
 
   // Codex（sessions + archived 去重）
@@ -1324,17 +1432,17 @@ async function collectAll(options = {}) {
       { dedupeByUuid: true },
     )
     sources.push(meta)
+    stage.index += 1
+    report('parse', `Codex：${meta.sessionCount} 个会话`)
   } catch (err) {
-    sources.push({
-      id: 'codex',
-      name: 'Codex',
-      kind: 'connected',
-      status: 'error',
-      sessionCount: 0,
-      lastActivity: null,
-      detail: '解析失败: ' + String(err && err.message).slice(0, 120),
-      note: '',
-    })
+    sources.push(
+      sourceRecord('codex', {
+        status: 'error',
+        detail: '解析失败: ' + String(err && err.message).slice(0, 120),
+      }),
+    )
+    stage.index += 1
+    report('parse', 'Codex：解析失败')
   }
 
   // DSH
@@ -1370,27 +1478,23 @@ async function collectAll(options = {}) {
         }
       }
     }
-    sources.push({
-      id: 'dsh',
-      name: 'DSH',
-      kind: 'connected',
-      status: 'connected',
-      sessionCount: count,
-      lastActivity,
-      detail: '',
-      note: '',
-    })
+    sources.push(
+      sourceRecord('dsh', {
+        sessionCount: count,
+        lastActivity,
+      }),
+    )
+    stage.index += 1
+    report('parse', `DSH：${count} 个会话`)
   } catch (err) {
-    sources.push({
-      id: 'dsh',
-      name: 'DSH',
-      kind: 'connected',
-      status: 'error',
-      sessionCount: 0,
-      lastActivity: null,
-      detail: '解析失败: ' + String(err && err.message).slice(0, 120),
-      note: '',
-    })
+    sources.push(
+      sourceRecord('dsh', {
+        status: 'error',
+        detail: '解析失败: ' + String(err && err.message).slice(0, 120),
+      }),
+    )
+    stage.index += 1
+    report('parse', 'DSH：解析失败')
   }
 
   // SQLite 源
@@ -1411,16 +1515,9 @@ async function collectAll(options = {}) {
   for (const src of sqliteSources) {
     const dbPath = expandPath(src.db)
     if (!fs.existsSync(dbPath)) {
-      sources.push({
-        id: src.id,
-        name: TOOLS[src.id].name,
-        kind: 'connected',
-        status: 'absent',
-        sessionCount: 0,
-        lastActivity: null,
-        detail: '未检测到本地数据库',
-        note: '',
-      })
+      sources.push(sourceRecord(src.id, { status: 'absent', detail: '未检测到本地数据库' }))
+      stage.index += 1
+      report('parse', `${TOOLS[src.id].name}：未检测到数据库`)
       continue
     }
     try {
@@ -1430,27 +1527,24 @@ async function collectAll(options = {}) {
       for (const s of result.sessions) {
         if (s.end && (!lastActivity || s.end > lastActivity)) lastActivity = s.end
       }
-      sources.push({
-        id: src.id,
-        name: TOOLS[src.id].name,
-        kind: 'connected',
-        status: 'connected',
-        sessionCount: result.sessions.length,
-        lastActivity,
-        detail: result.note || '',
-        note: '',
-      })
+      sources.push(
+        sourceRecord(src.id, {
+          sessionCount: result.sessions.length,
+          lastActivity,
+          detail: result.note || '',
+        }),
+      )
+      stage.index += 1
+      report('parse', `${TOOLS[src.id].name}：${result.sessions.length} 个会话`)
     } catch (err) {
-      sources.push({
-        id: src.id,
-        name: TOOLS[src.id].name,
-        kind: 'connected',
-        status: 'error',
-        sessionCount: 0,
-        lastActivity: null,
-        detail: '解析失败: ' + String(err && err.message).slice(0, 120),
-        note: '',
-      })
+      sources.push(
+        sourceRecord(src.id, {
+          status: 'error',
+          detail: '解析失败: ' + String(err && err.message).slice(0, 120),
+        }),
+      )
+      stage.index += 1
+      report('parse', `${TOOLS[src.id].name}：解析失败`)
     }
   }
 
@@ -1466,6 +1560,13 @@ async function collectAll(options = {}) {
       lastActivity: null,
       detail: src.reason,
       note: '',
+      protocol: 'none',
+      access: 'none',
+      hint: src.paths.join('、'),
+      paths: src.paths.map((spec) => {
+        const resolved = expandPath(spec)
+        return { spec, resolved, exists: fs.existsSync(resolved) }
+      }),
     })
   }
 
@@ -1476,6 +1577,9 @@ async function collectAll(options = {}) {
     if (!Array.isArray(s.artifacts)) s.artifacts = []
   }
 
+  // 阶段三：把成果文件挂到会话时间窗上（最慢的一步，单独报进度）
+  stage.index = stage.total - 1
+  report('artifacts', '正在把改动文件挂载到会话时间窗…')
   try {
     attachArtifacts(sessions)
   } catch {
@@ -1483,6 +1587,8 @@ async function collectAll(options = {}) {
   }
 
   sessions.sort((a, b) => (a.start || 0) - (b.start || 0))
+  stage.index = stage.total
+  report('done', `采集完成：${sessions.length} 个会话`)
   return {
     generatedAt: Date.now(),
     sessions,

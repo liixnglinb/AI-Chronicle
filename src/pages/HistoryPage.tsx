@@ -1,259 +1,295 @@
 import { useMemo, useState } from 'react'
-import { ChevronDown } from 'lucide-react'
+import { ChevronDown, ChevronRight, Clock } from 'lucide-react'
 import { useChronicle } from '../lib/store'
-import { dayKeyOf, formatDayLabel, formatDuration, sessionDurationMinutes } from '../lib/format'
-import { SessionRow } from '../components/SessionRow'
-import { ToolDot } from '../components/ToolDot'
-import { PageHeader } from '../components/PageHeader'
+import {
+  dayKeyOf,
+  formatDayLabel,
+  formatDuration,
+  formatTimeRange,
+  sessionDurationMinutes,
+} from '../lib/format'
+import { projectDisplayName } from '../lib/paths'
+import { useIncrementalList } from '../lib/useIncrementalList'
+import { useViewState, isFilter } from '../lib/useViewState'
+import { openLocalPath } from '../lib/desktop'
 import { EmptyState, DesktopOnlyPage } from '../components/EmptyState'
-import { LoadMore } from '../components/Progress'
 import { SkeletonPage } from '../components/Skeleton'
 import { classNames } from '../lib/utils'
 import type { SessionRecord } from '../types'
-import { ICON_SIZE } from '../lib/ui'
-import { useViewState, isFilter, isOpenGroup } from '../lib/useViewState'
-import { Button } from '../components/Button'
 
 interface HistoryPageProps {
   searchQuery: string
   onClearSearch: () => void
 }
 
-type DateRange = 7 | 30 | 0
+type RangeOption = 7 | 30 | 0
 
-const PAGE_SIZE = 10
-
-const RANGE_OPTIONS: Array<[string, string]> = [
-  ['0', '全部时间'],
-  ['30', '近 30 天'],
-  ['7', '近 7 天'],
+const RANGE_OPTIONS: Array<[RangeOption, string]> = [
+  [7, '近 7 天'],
+  [30, '近 30 天'],
+  [0, '全量档案'],
 ]
 
+/**
+ * 会话档案：分日折叠清单 + 时间跨度/工具来源复合过滤。
+ * 默认展开最近 3 个活动日，其余折叠 —— 历史动辄数百条会话，
+ * 全量铺开既慢又让人找不到东西。
+ */
 export function HistoryPage({ searchQuery, onClearSearch }: HistoryPageProps) {
   const { data, loading, isDesktop } = useChronicle()
-  const [openDay, setOpenDay] = useViewState<string | null>('history-open', null, isOpenGroup)
-  const [range, setRange] = useViewState<DateRange>(
+  const [rangeFilter, setRangeFilter] = useViewState<RangeOption>(
     'history-range',
-    0,
-    (v): v is DateRange => v === 0 || v === 7 || v === 30,
+    7,
+    (v): v is RangeOption => v === 7 || v === 30 || v === 0,
   )
   const [toolFilter, setToolFilter] = useViewState('history-tool', 'all', isFilter)
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
+  const [expandedDays, setExpandedDays] = useState<Record<string, boolean>>({})
 
-  const tools = useMemo(() => {
+  const allSessions = useMemo(() => data?.sessions ?? [], [data])
+
+  const allProjectPaths = useMemo(
+    () => allSessions.map((s) => s.projectPath || s.project).filter(Boolean),
+    [allSessions],
+  )
+
+  // 1. 可用工具列表（含各自会话数）
+  const availableTools = useMemo(() => {
     const map = new Map<string, { name: string; color: string; count: number }>()
-    for (const s of data?.sessions ?? []) {
+    for (const s of allSessions) {
       const item = map.get(s.tool) || { name: s.toolName, color: s.toolColor, count: 0 }
       item.count += 1
       map.set(s.tool, item)
     }
-    return [...map.values()].sort((a, b) => b.count - a.count)
-  }, [data])
+    return [...map.entries()]
+      .map(([id, meta]) => ({ id, ...meta }))
+      .sort((a, b) => b.count - a.count)
+  }, [allSessions])
 
+  // 2. 复合过滤：时间跨度 ∩ 工具来源 ∩ 搜索词
   const filteredSessions = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase()
-    const minTime = range ? Date.now() - range * 86_400_000 : 0
-    return (data?.sessions ?? [])
-      .filter((s) => {
-        if (toolFilter !== 'all' && s.toolName !== toolFilter) return false
-        if (minTime && (s.start || 0) < minTime) return false
-        if (!query) return true
-        return (
-          s.title.toLowerCase().includes(query) ||
-          s.project.toLowerCase().includes(query) ||
-          s.toolName.toLowerCase().includes(query) ||
-          (s.artifacts ?? []).some((a) => a.name.toLowerCase().includes(query))
-        )
-      })
-      .sort((a, b) => (b.start || 0) - (a.start || 0))
-  }, [data, searchQuery, range, toolFilter])
+    const cutoff = rangeFilter === 0 ? 0 : Date.now() - rangeFilter * 86_400_000
+    const q = searchQuery.trim().toLowerCase()
 
-  const days = useMemo(() => {
-    const map = new Map<
-      string,
-      { sessions: SessionRecord[]; tools: Map<string, { name: string; color: string }> }
-    >()
+    return allSessions.filter((s) => {
+      if (cutoff && (s.start || 0) < cutoff) return false
+      if (toolFilter !== 'all' && s.tool !== toolFilter) return false
+      if (!q) return true
+      return (
+        s.title.toLowerCase().includes(q) ||
+        s.project.toLowerCase().includes(q) ||
+        s.projectPath.toLowerCase().includes(q) ||
+        s.model.toLowerCase().includes(q) ||
+        s.toolName.toLowerCase().includes(q)
+      )
+    })
+  }, [allSessions, rangeFilter, toolFilter, searchQuery])
+
+  // 3. 按日分组（新的在前）
+  const dayGroups = useMemo(() => {
+    const map = new Map<string, SessionRecord[]>()
     for (const s of filteredSessions) {
       const key = s.start ? dayKeyOf(s.start) : 'unknown'
-      let day = map.get(key)
-      if (!day) {
-        day = { sessions: [], tools: new Map() }
-        map.set(key, day)
-      }
-      day.sessions.push(s)
-      if (!day.tools.has(s.tool)) {
-        day.tools.set(s.tool, { name: s.toolName, color: s.toolColor })
-      }
+      const bucket = map.get(key)
+      if (bucket) bucket.push(s)
+      else map.set(key, [s])
     }
-    const keys = [...map.keys()]
-      .sort((a, b) => (a === 'unknown' ? 1 : b === 'unknown' ? -1 : a < b ? 1 : -1))
-      .slice(0, visibleCount)
-    return keys.map((key) => {
-      const day = map.get(key)!
-      const sessions = [...day.sessions].sort((a, b) => (b.start || 0) - (a.start || 0))
-      const minutes = sessions.reduce((sum, s) => sum + sessionDurationMinutes(s), 0)
-      return { key, sessions, tools: [...day.tools.values()], minutes }
-    })
-  }, [filteredSessions, visibleCount])
+    return [...map.entries()]
+      .sort((a, b) => (a[0] === 'unknown' ? 1 : b[0] === 'unknown' ? -1 : b[0].localeCompare(a[0])))
+      .map(([dayKey, sessions]) => ({
+        dayKey,
+        sessions: [...sessions].sort((a, b) => (b.start || 0) - (a.start || 0)),
+      }))
+  }, [filteredSessions])
 
-  const totalMinutes = filteredSessions.reduce((sum, s) => sum + sessionDurationMinutes(s), 0)
-  const totalArtifacts = filteredSessions.reduce((sum, s) => sum + (s.artifacts ?? []).length, 0)
-  const totalSpan = formatDuration(totalMinutes)
+  const {
+    visibleItems: visibleDayGroups,
+    hasMore,
+    loadMore,
+    remaining,
+  } = useIncrementalList(dayGroups, {
+    pageSize: 10,
+    resetKey: `${rangeFilter}_${toolFilter}_${searchQuery}`,
+  })
 
-  // 有记录的天数（用于「继续加载」的剩余计数）
-  const totalDays = useMemo(
-    () => new Set(filteredSessions.map((s) => (s.start ? dayKeyOf(s.start) : 'unknown'))).size,
-    [filteredSessions],
-  )
-  const remainingDays = Math.max(0, totalDays - days.length)
-  const hasMoreDays = remainingDays > 0
+  function toggleDay(dayKey: string) {
+    setExpandedDays((prev) => ({ ...prev, [dayKey]: !(prev[dayKey] ?? false) }))
+  }
+
+  // 默认展开最近 3 个活动日，其余折叠
+  function isDayExpanded(dayKey: string, index: number): boolean {
+    if (expandedDays[dayKey] !== undefined) return expandedDays[dayKey]
+    return index < 3
+  }
+
+  function resetFilters() {
+    setRangeFilter(7)
+    setToolFilter('all')
+    onClearSearch()
+  }
 
   if (!isDesktop) {
     return <DesktopOnlyPage title="会话档案" description="会话档案读取的是本机真实会话日志。" />
   }
 
-  const kicker = filteredSessions.length
-    ? [
-        `${filteredSessions.length} 条会话`,
-        `${totalArtifacts} 个产出`,
-        totalSpan ? `累计时长 ${totalSpan}` : '',
-      ]
-        .filter(Boolean)
-        .join(' · ')
-    : '全部真实会话都保存在本机'
+  if (loading && !data) return <SkeletonPage cards={0} rows={6} banner={false} />
+
+  if (dayGroups.length === 0) {
+    return (
+      <EmptyState
+        title="未匹配到历史会话记录"
+        description="请尝试调整时间范围、工具筛选条件，或清空当前搜索关键词。"
+        actions={
+          <button onClick={resetFilters} className="desk-btn-secondary">
+            重置全部筛选
+          </button>
+        }
+      />
+    )
+  }
 
   return (
-    <div className="page">
-      <PageHeader kicker={kicker} title="会话档案" />
-
-      <div className="collection-toolbar">
-        <div className="filter-chip-scroll">
-          {RANGE_OPTIONS.map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              aria-pressed={range.toString() === value}
-              className={classNames(
-                'filter-chip',
-                range.toString() === value && 'filter-chip-active',
-              )}
-              onClick={() => {
-                setRange((value === '0' ? 0 : Number(value)) as DateRange)
-                setVisibleCount(PAGE_SIZE)
-              }}
-            >
-              {label}
-            </button>
-          ))}
+    <div className="desk-history-shell">
+      {/* 复合控制工具条 */}
+      <div className="desk-filter-bar">
+        <div className="desk-filter-group">
+          <span className="desk-filter-label">时间范围</span>
+          <div className="desk-pill-group">
+            {RANGE_OPTIONS.map(([value, label]) => (
+              <button
+                key={value}
+                className={classNames('desk-pill-btn', rangeFilter === value && 'active')}
+                onClick={() => setRangeFilter(value)}
+                aria-pressed={rangeFilter === value}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="filter-chip-scroll">
-          <button
-            type="button"
-            aria-pressed={toolFilter === 'all'}
-            className={classNames('filter-chip', toolFilter === 'all' && 'filter-chip-active')}
-            onClick={() => {
-              setToolFilter('all')
-              setVisibleCount(PAGE_SIZE)
-            }}
-          >
-            全部软件
-          </button>
-          {tools.map((tool) => (
+
+        <div className="desk-filter-group">
+          <span className="desk-filter-label">数据源</span>
+          <div className="desk-tool-filter-scroll">
             <button
-              key={tool.name}
-              type="button"
-              aria-pressed={toolFilter === tool.name}
-              className={classNames(
-                'filter-chip',
-                toolFilter === tool.name && 'filter-chip-active',
-              )}
-              onClick={() => {
-                setToolFilter(tool.name)
-                setVisibleCount(PAGE_SIZE)
-              }}
+              className={classNames('desk-tool-chip', toolFilter === 'all' && 'active')}
+              onClick={() => setToolFilter('all')}
+              aria-pressed={toolFilter === 'all'}
             >
-              <span className="tool-dot" style={{ ['--tool-color' as string]: tool.color }} />
-              {tool.name} · {tool.count}
+              全部 ({allSessions.length})
             </button>
-          ))}
+            {availableTools.map((t) => (
+              <button
+                key={t.id}
+                className={classNames('desk-tool-chip', toolFilter === t.id && 'active')}
+                onClick={() => setToolFilter(t.id)}
+                aria-pressed={toolFilter === t.id}
+              >
+                <span className="desk-tool-chip-dot" style={{ backgroundColor: t.color }} />
+                <span>{t.name}</span>
+                <small className="desk-tool-chip-num">{t.count}</small>
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
-      {loading && !data && <SkeletonPage cells={0} rows={6} />}
+      {/* 分日折叠清单 */}
+      <div className="desk-day-group-list">
+        {visibleDayGroups.map((group, groupIdx) => {
+          const expanded = isDayExpanded(group.dayKey, groupIdx)
+          const totalTurns = group.sessions.reduce((acc, s) => acc + s.turns, 0)
+          const totalMinutes = group.sessions.reduce((acc, s) => acc + sessionDurationMinutes(s), 0)
+          const toolsInDay = new Map<string, string>()
+          for (const s of group.sessions) toolsInDay.set(s.tool, s.toolColor)
 
-      {data && days.length === 0 && (
-        <EmptyState
-          title="没有匹配的会话档案"
-          description="调整时间范围、软件筛选或顶部搜索词后重试。"
-          actions={
-            <Button
-              onClick={() => {
-                setRange(0)
-                setToolFilter('all')
-                setVisibleCount(PAGE_SIZE)
-                onClearSearch()
-              }}
-            >
-              清除筛选与搜索
-            </Button>
-          }
-        />
-      )}
-
-      <div className="history-day-list">
-        {days.map((day) => {
-          const open = openDay === day.key
           return (
-            <div
-              className={classNames('history-day-card', 'list-item-enter', open && 'open')}
-              key={day.key}
-            >
+            <div key={group.dayKey} className="desk-panel desk-day-block desk-enter">
               <button
-                type="button"
-                className="history-day-head"
-                onClick={() => setOpenDay(open ? null : day.key)}
-                aria-expanded={open}
+                className="desk-day-head"
+                onClick={() => toggleDay(group.dayKey)}
+                aria-expanded={expanded}
               >
-                <div className="history-day-title">
-                  <strong>{day.key === 'unknown' ? '日期未知' : formatDayLabel(day.key)}</strong>
-                  <span className="history-day-meta">
-                    {day.sessions.length} 会话
-                    {day.minutes > 0 && ` · 累计 ${formatDuration(day.minutes)}`}
+                <span className="desk-day-title-area">
+                  <span className="desk-day-chevron">
+                    {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                   </span>
-                </div>
-                <div className="history-day-tools">
-                  {day.tools.slice(0, 4).map((t) => (
-                    <ToolDot key={t.name} color={t.color} name={t.name} />
-                  ))}
-                  {day.tools.length > 4 && (
-                    <span className="result-count">+{day.tools.length - 4}</span>
+                  <span className="desk-day-date-text">
+                    {group.dayKey === 'unknown' ? '时间未记载' : formatDayLabel(group.dayKey)}
+                  </span>
+                  <span className="desk-day-tool-dots">
+                    {[...toolsInDay.values()].map((color, i) => (
+                      <span key={i} className="desk-day-dot" style={{ backgroundColor: color }} />
+                    ))}
+                  </span>
+                </span>
+                <span className="desk-day-stats-area">
+                  <span className="desk-day-stat-pill">{group.sessions.length} 会话</span>
+                  <span className="desk-day-stat-pill">{totalTurns} 轮</span>
+                  {totalMinutes > 0 && (
+                    <span className="desk-day-stat-pill">{formatDuration(totalMinutes)}</span>
                   )}
-                </div>
-                <ChevronDown
-                  size={ICON_SIZE.sm}
-                  className={classNames('history-day-chevron', open && 'history-day-chevron-open')}
-                  aria-hidden
-                />
+                </span>
               </button>
-              {open && (
-                <div className="history-day-sessions">
-                  {day.sessions.map((s) => (
-                    <SessionRow key={s.id} session={s} compact />
+
+              {expanded && (
+                <div className="desk-session-rows">
+                  {group.sessions.map((s) => (
+                    <div key={s.id} className="desk-session-row">
+                      <span className="desk-row-time" title="会话起止时间">
+                        <Clock size={12} className="desk-time-ico" />
+                        {formatTimeRange(s.start, s.end)}
+                      </span>
+
+                      <span className="desk-row-tool">
+                        <span className="desk-tool-badge" style={{ borderColor: s.toolColor }}>
+                          <span
+                            className="desk-tool-badge-dot"
+                            style={{ backgroundColor: s.toolColor }}
+                          />
+                          <span>{s.toolName}</span>
+                        </span>
+                      </span>
+
+                      <span className="desk-row-main">
+                        <span className="desk-row-title" title={s.title}>
+                          {s.title || '（空白会话标题）'}
+                        </span>
+                        <span className="desk-row-meta">
+                          <span
+                            className="desk-meta-proj"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              if (s.projectPath) void openLocalPath(s.projectPath)
+                            }}
+                            title={`在工作目录中打开：${s.projectPath}`}
+                          >
+                            {projectDisplayName(s.projectPath || s.project, allProjectPaths)}
+                          </span>
+                          {s.model && <span className="desk-meta-model">{s.model}</span>}
+                          <span className="desk-meta-turns">{s.turns} 轮</span>
+                          {s.artifacts.length > 0 && (
+                            <span className="desk-meta-art-count">
+                              产出 {s.artifacts.length} 个文件
+                            </span>
+                          )}
+                        </span>
+                      </span>
+                    </div>
                   ))}
                 </div>
               )}
             </div>
           )
         })}
-      </div>
 
-      {hasMoreDays && (
-        <LoadMore
-          noun="天日志"
-          remaining={remainingDays}
-          onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}
-        />
-      )}
+        {hasMore && (
+          <div className="desk-load-more-wrap">
+            <button onClick={loadMore} className="desk-btn-ghost">
+              加载更多历史日记（还有 {remaining} 个活动日）
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

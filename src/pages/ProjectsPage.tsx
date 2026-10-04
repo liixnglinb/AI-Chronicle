@@ -1,20 +1,13 @@
-import { useMemo } from 'react'
-import { ChevronDown, FileText, FolderKanban, FolderOpen, Layers, Repeat } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { ChevronDown, ChevronRight, FolderKanban, FolderOpen } from 'lucide-react'
 import { useChronicle } from '../lib/store'
 import { dayKeyOf, formatDayLabelShort, formatTimeRange } from '../lib/format'
+import { toCrumbs } from '../lib/paths'
 import { useIncrementalList } from '../lib/useIncrementalList'
-import { SessionRow } from '../components/SessionRow'
-import { ToolDot } from '../components/ToolDot'
-import { PageHeader } from '../components/PageHeader'
+import { openLocalPath } from '../lib/desktop'
 import { EmptyState, DesktopOnlyPage } from '../components/EmptyState'
-import { SummaryStrip } from '../components/SummaryStrip'
-import { LoadMore } from '../components/Progress'
 import { SkeletonPage } from '../components/Skeleton'
-import { classNames } from '../lib/utils'
 import type { SessionRecord, ToastMessage } from '../types'
-import { ICON_SIZE } from '../lib/ui'
-import { useViewState, isFilter, isOpenGroup } from '../lib/useViewState'
-import { Button } from '../components/Button'
 
 interface ProjectsPageProps {
   searchQuery: string
@@ -22,138 +15,89 @@ interface ProjectsPageProps {
   onToast: (toast: Omit<ToastMessage, 'id'>) => void
 }
 
-type ProjectRange = 0 | 7 | 30
-type ProjectSort = 'recent' | 'sessions' | 'artifacts'
-
 interface ProjectGroup {
   key: string
-  name: string
   path: string
   sessions: SessionRecord[]
   turns: number
-  artifacts: number
+  artifactsCount: number
   lastActive: number
   todayCount: number
-  tools: { name: string; color: string }[]
+  tools: Array<{ name: string; color: string }>
 }
 
-const RANGE_OPTIONS: Array<[string, string]> = [
-  ['0', '全部时间'],
-  ['30', '近 30 天'],
-  ['7', '近 7 天'],
-]
-
-const SORT_OPTIONS: Array<[ProjectSort, string]> = [
-  ['recent', '最近'],
-  ['sessions', '会话'],
-  ['artifacts', '产出'],
-]
-
+/**
+ * 项目集：按工作目录归组 + 结构化面包屑 + 聚合透视。
+ * 面包屑用「同组唯一后缀」消歧，避免 packages/core 与 apps/core 显示成同一个 core。
+ */
 export function ProjectsPage({ searchQuery, onClearSearch, onToast }: ProjectsPageProps) {
   const { data, loading, isDesktop } = useChronicle()
-  const [openProject, setOpenProject] = useViewState<string | null>(
-    'projects-open',
-    null,
-    isOpenGroup,
-  )
-  const [range, setRange] = useViewState<ProjectRange>(
-    'projects-range',
-    0,
-    (v): v is ProjectRange => v === 0 || v === 7 || v === 30,
-  )
-  const [toolFilter, setToolFilter] = useViewState('projects-tool', 'all', isFilter)
-  const [sort, setSort] = useViewState<ProjectSort>(
-    'projects-sort',
-    'recent',
-    (v): v is ProjectSort => v === 'recent' || v === 'sessions' || v === 'artifacts',
-  )
+  const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({})
 
-  const tools = useMemo(() => {
-    const map = new Map<string, { name: string; color: string; count: number }>()
-    for (const s of data?.sessions ?? []) {
-      const item = map.get(s.tool) || { name: s.toolName, color: s.toolColor, count: 0 }
-      item.count += 1
-      map.set(s.tool, item)
-    }
-    return [...map.values()].sort((a, b) => b.count - a.count)
-  }, [data])
+  const allSessions = useMemo(() => data?.sessions ?? [], [data])
 
-  const projects = useMemo<ProjectGroup[]>(() => {
-    const query = searchQuery.trim().toLowerCase()
-    const minTime = range ? Date.now() - range * 86_400_000 : 0
-    const todayKey = dayKeyOf(Date.now())
+  const projectGroups = useMemo<ProjectGroup[]>(() => {
+    const todayStart = new Date().setHours(0, 0, 0, 0)
     const map = new Map<string, ProjectGroup>()
 
-    for (const s of data?.sessions ?? []) {
-      if (minTime && (s.start || 0) < minTime) continue
-      if (toolFilter !== 'all' && s.toolName !== toolFilter) continue
-      if (
-        query &&
-        !s.title.toLowerCase().includes(query) &&
-        !s.project.toLowerCase().includes(query) &&
-        !s.projectPath.toLowerCase().includes(query) &&
-        !(s.artifacts ?? []).some((a) => a.name.toLowerCase().includes(query))
-      ) {
-        continue
-      }
-
-      const key = s.projectPath || s.project || '(未知位置)'
-      let group = map.get(key)
+    for (const s of allSessions) {
+      const path = s.projectPath || s.project
+      if (!path) continue
+      let group = map.get(path)
       if (!group) {
         group = {
-          key,
-          name: s.project || '(未知位置)',
-          path: key,
+          key: path,
+          path,
           sessions: [],
           turns: 0,
-          artifacts: 0,
+          artifactsCount: 0,
           lastActive: 0,
           todayCount: 0,
           tools: [],
         }
-        map.set(key, group)
+        map.set(path, group)
       }
       group.sessions.push(s)
       group.turns += s.turns
-      group.artifacts += (s.artifacts ?? []).length
-      if (s.start && dayKeyOf(s.start) === todayKey) group.todayCount += 1
+      group.artifactsCount += s.artifacts?.length ?? 0
       const end = s.end || s.start || 0
       if (end > group.lastActive) group.lastActive = end
+      if (s.start && s.start >= todayStart) group.todayCount += 1
       if (!group.tools.some((t) => t.name === s.toolName)) {
         group.tools.push({ name: s.toolName, color: s.toolColor })
       }
     }
+    return [...map.values()].sort((a, b) => b.lastActive - a.lastActive)
+  }, [allSessions])
 
-    return [...map.values()].sort((a, b) => {
-      if (sort === 'sessions') return b.sessions.length - a.sessions.length
-      if (sort === 'artifacts') return b.artifacts - a.artifacts
-      return b.lastActive - a.lastActive
-    })
-  }, [data, searchQuery, range, toolFilter, sort])
+  const allPaths = useMemo(() => projectGroups.map((g) => g.path), [projectGroups])
 
-  const totalArtifacts = projects.reduce((sum, p) => sum + p.artifacts, 0)
-  const totalTurns = projects.reduce((sum, p) => sum + p.turns, 0)
-  const activeToday = projects.filter((p) => p.todayCount > 0).length
+  const filteredProjects = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase()
+    if (!q) return projectGroups
+    return projectGroups.filter(
+      (g) =>
+        g.path.toLowerCase().includes(q) ||
+        g.sessions.some((s) => s.title.toLowerCase().includes(q)),
+    )
+  }, [projectGroups, searchQuery])
 
-  // 项目集可能有上百个卡片，首屏只渲染前 30 个，其余按需追加
-  const {
-    visibleItems: visibleProjects,
-    hasMore,
-    remaining,
-    loadMore,
-  } = useIncrementalList(projects, {
-    pageSize: 30,
-    resetKey: `${range}|${toolFilter}|${sort}|${searchQuery}`,
+  const { visibleItems, hasMore, loadMore, remaining } = useIncrementalList(filteredProjects, {
+    pageSize: 24,
+    resetKey: searchQuery,
   })
 
-  async function openProjectFolder(path: string) {
-    if (path === '(未知位置)') return
-    const result = await window.desktopAPI?.openPath(path)
-    if (result && !result.ok) {
+  function toggleExpand(key: string) {
+    setExpandedProjects((prev) => ({ ...prev, [key]: !prev[key] }))
+  }
+
+  async function handleOpenFolder(path: string) {
+    const result = await openLocalPath(path)
+    if (!result.ok) {
       onToast({
         tone: 'warning',
-        title: '无法打开项目目录',
-        message: result.message ?? '目录可能已被移动或删除。',
+        title: '定位失败',
+        message: result.message || '目录可能已被移动或删除',
       })
     }
   }
@@ -162,199 +106,125 @@ export function ProjectsPage({ searchQuery, onClearSearch, onToast }: ProjectsPa
     return <DesktopOnlyPage title="项目集" description="项目集按本机会话日志中的工作目录聚合。" />
   }
 
-  return (
-    <div className="page">
-      <PageHeader
-        kicker={
-          projects.length
-            ? `${projects.length} 个项目 · ${totalTurns} 轮协作 · ${totalArtifacts} 个产出`
-            : '项目来自会话日志中的真实工作目录'
-        }
-        title="项目集"
+  if (loading && !data) return <SkeletonPage cards={4} rows={4} banner={false} />
+
+  if (projectGroups.length === 0) {
+    return (
+      <EmptyState
+        title="暂无聚合工作项目"
+        description="会话中包含的当前工作目录（CWD）将被提取并归类于此。"
       />
+    )
+  }
 
-      {data && projects.length > 0 && (
-        <SummaryStrip
-          items={[
-            {
-              key: 'projects',
-              label: '项目总数',
-              value: projects.length,
-              icon: <FolderKanban size={ICON_SIZE.sm} />,
-              tone: 'primary',
-            },
-            {
-              key: 'today',
-              label: '今日有活动',
-              value: activeToday,
-              icon: <Layers size={ICON_SIZE.sm} />,
-              tone: activeToday > 0 ? 'positive' : 'default',
-            },
-            {
-              key: 'turns',
-              label: '协作轮次',
-              value: totalTurns,
-              icon: <Repeat size={ICON_SIZE.sm} />,
-            },
-            {
-              key: 'artifacts',
-              label: '产出文件',
-              value: totalArtifacts,
-              icon: <FileText size={ICON_SIZE.sm} />,
-            },
-          ]}
-        />
-      )}
-
-      <div className="collection-toolbar">
-        <div className="filter-chip-scroll">
-          {RANGE_OPTIONS.map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              className={classNames(
-                'filter-chip',
-                range.toString() === value && 'filter-chip-active',
-              )}
-              onClick={() => setRange((value === '0' ? 0 : Number(value)) as ProjectRange)}
-              aria-pressed={range.toString() === value}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        <div className="filter-chip-scroll">
-          <button
-            type="button"
-            className={classNames('filter-chip', toolFilter === 'all' && 'filter-chip-active')}
-            onClick={() => setToolFilter('all')}
-            aria-pressed={toolFilter === 'all'}
-          >
-            全部软件
+  return (
+    <div className="desk-projects-shell">
+      <div className="desk-section-head">
+        <span className="desk-projects-count">
+          <strong>{filteredProjects.length}</strong> 个受监控工作目录
+          {searchQuery.trim() && ` （共 ${projectGroups.length} 个，已过滤）`}
+        </span>
+        {searchQuery.trim() && (
+          <button onClick={onClearSearch} className="desk-btn-ghost-sm">
+            清除过滤
           </button>
-          {tools.map((tool) => (
-            <button
-              key={tool.name}
-              type="button"
-              className={classNames(
-                'filter-chip',
-                toolFilter === tool.name && 'filter-chip-active',
-              )}
-              onClick={() => setToolFilter(tool.name)}
-              aria-pressed={toolFilter === tool.name}
-            >
-              <span className="tool-dot" style={{ ['--tool-color' as string]: tool.color }} />
-              {tool.name} · {tool.count}
-            </button>
-          ))}
-        </div>
-        <div className="segmented-control" aria-label="排序方式">
-          {SORT_OPTIONS.map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              className={classNames(sort === value && 'segmented-active')}
-              onClick={() => setSort(value)}
-              aria-pressed={sort === value}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        )}
       </div>
 
-      {loading && !data && <SkeletonPage cells={4} rows={5} />}
+      <div className="desk-project-card-grid">
+        {visibleItems.map((grp) => {
+          const isExpanded = !!expandedProjects[grp.key]
+          const crumbs = toCrumbs(grp.path, allPaths)
 
-      {data && projects.length === 0 && (
-        <EmptyState
-          title="没有匹配的项目"
-          description="调整时间范围、软件筛选或顶部搜索词后重试。"
-          actions={
-            <Button
-              onClick={() => {
-                setRange(0)
-                setToolFilter('all')
-                onClearSearch()
-              }}
-            >
-              清除筛选与搜索
-            </Button>
-          }
-        />
-      )}
-
-      <div className="project-list">
-        {visibleProjects.map((project) => {
-          const open = openProject === project.key
           return (
-            <div
-              className={classNames('project-card', 'list-item-enter', open && 'open')}
-              key={project.key}
-            >
-              <div className="project-card-head">
-                <button
-                  type="button"
-                  className="project-card-main"
-                  onClick={() => setOpenProject(open ? null : project.key)}
-                  aria-expanded={open}
-                >
-                  <strong>{project.name}</strong>
-                  <span className="project-card-path" title={project.path}>
-                    {project.path}
+            <div key={grp.key} className="desk-panel desk-project-card desk-enter">
+              <div className="desk-proj-card-head">
+                <div className="desk-proj-title-row">
+                  <FolderKanban size={16} className="desk-proj-ico" />
+                  <span className="desk-proj-name" title={grp.path}>
+                    {crumbs.leaf}
                   </span>
-                </button>
+                  {grp.todayCount > 0 && (
+                    <span className="desk-proj-today-pill">今日 +{grp.todayCount}</span>
+                  )}
+                </div>
+
                 <button
-                  type="button"
-                  className="icon-button"
-                  onClick={() => void openProjectFolder(project.path)}
-                  title="打开项目目录"
-                  aria-label={`打开项目目录：${project.name}`}
+                  onClick={() => void handleOpenFolder(grp.path)}
+                  className="desk-icon-btn-ghost"
+                  title={`在文件资源管理器中打开：${grp.path}`}
+                  aria-label={`打开项目目录 ${grp.path}`}
                 >
-                  <FolderOpen size={ICON_SIZE.sm} />
-                </button>
-                <button
-                  type="button"
-                  className="icon-button project-card-chevron"
-                  onClick={() => setOpenProject(open ? null : project.key)}
-                  title={open ? '收起会话' : '展开会话'}
-                  aria-label={open ? `收起 ${project.name} 的会话` : `展开 ${project.name} 的会话`}
-                >
-                  <ChevronDown size={ICON_SIZE.sm} className={classNames(open && 'chevron-open')} />
+                  <FolderOpen size={14} />
                 </button>
               </div>
-              <div className="project-card-meta">
-                <span>{project.sessions.length} 会话</span>
-                <span>{project.turns} 轮</span>
-                {project.artifacts > 0 && <span>{project.artifacts} 产出</span>}
-                {project.todayCount > 0 && (
-                  <span className="project-today">今天 {project.todayCount}</span>
-                )}
-                <span className="project-last">
-                  最近 {formatDayLabelShort(dayKeyOf(project.lastActive))}
-                </span>
-              </div>
-              <div className="project-card-tools">
-                {project.tools.slice(0, 4).map((tool) => (
-                  <ToolDot key={tool.name} color={tool.color} name={tool.name} />
+
+              {/* 面包屑：祖先置灰、终端名高亮；完整路径由 title 兜底 */}
+              <div className="desk-proj-breadcrumb" title={grp.path}>
+                {crumbs.ancestors.map((seg, i) => (
+                  <span key={`${seg}-${i}`} style={{ display: 'contents' }}>
+                    <span className="desk-crumb">{seg}</span>
+                    <span className="desk-crumb-sep">/</span>
+                  </span>
                 ))}
+                <span className="desk-crumb is-leaf">{crumbs.leaf}</span>
               </div>
-              {open && (
-                <div className="project-sessions">
-                  {[...project.sessions]
+
+              <div className="desk-proj-metric-grid">
+                <div className="desk-proj-metric-item">
+                  <small>累计会话</small>
+                  <strong>{grp.sessions.length}</strong>
+                </div>
+                <div className="desk-proj-metric-item">
+                  <small>交互轮次</small>
+                  <strong>{grp.turns}</strong>
+                </div>
+                <div className="desk-proj-metric-item">
+                  <small>产出文件</small>
+                  <strong>{grp.artifactsCount}</strong>
+                </div>
+                <div className="desk-proj-metric-item">
+                  <small>最近活动</small>
+                  <strong>
+                    {grp.lastActive ? formatDayLabelShort(dayKeyOf(grp.lastActive)) : '—'}
+                  </strong>
+                </div>
+              </div>
+
+              <div className="desk-proj-tools-footer">
+                <span className="desk-proj-tool-dots">
+                  {grp.tools.map((t) => (
+                    <span
+                      key={t.name}
+                      className="desk-proj-tool-dot"
+                      style={{ backgroundColor: t.color }}
+                      title={t.name}
+                    />
+                  ))}
+                </span>
+
+                <button onClick={() => toggleExpand(grp.key)} className="desk-proj-expand-btn">
+                  <span>会话明细 ({grp.sessions.length})</span>
+                  {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                </button>
+              </div>
+
+              {isExpanded && (
+                <div className="desk-proj-sessions-drawer">
+                  {[...grp.sessions]
                     .sort((a, b) => (b.start || 0) - (a.start || 0))
-                    .slice(0, 40)
-                    .map((session) => (
-                      <div key={session.id}>
-                        <div className="session-inline-time">
-                          {formatTimeRange(session.start, session.end)}
-                        </div>
-                        <SessionRow session={session} compact />
+                    .slice(0, 10)
+                    .map((s) => (
+                      <div key={s.id} className="desk-proj-session-item">
+                        <span className="desk-ps-dot" style={{ backgroundColor: s.toolColor }} />
+                        <span className="desk-ps-title" title={s.title}>
+                          {s.title || '（未命名会话）'}
+                        </span>
+                        <small className="desk-ps-time">{formatTimeRange(s.start, s.end)}</small>
                       </div>
                     ))}
-                  {project.sessions.length > 40 && (
-                    <div className="session-more-hint">
-                      仅显示最近 40 条，共 {project.sessions.length} 条
-                    </div>
+                  {grp.sessions.length > 10 && (
+                    <div className="desk-ps-more">仅展示最近 10 条会话，完整记录见「会话档案」</div>
                   )}
                 </div>
               )}
@@ -363,7 +233,25 @@ export function ProjectsPage({ searchQuery, onClearSearch, onToast }: ProjectsPa
         })}
       </div>
 
-      {hasMore && <LoadMore noun="项目" remaining={remaining} onClick={loadMore} />}
+      {filteredProjects.length === 0 && (
+        <EmptyState
+          title="没有匹配的项目"
+          description="当前过滤词没有命中任何工作目录或会话标题。"
+          actions={
+            <button onClick={onClearSearch} className="desk-btn-secondary">
+              清除过滤
+            </button>
+          }
+        />
+      )}
+
+      {hasMore && (
+        <div className="desk-load-more-wrap">
+          <button onClick={loadMore} className="desk-btn-ghost">
+            加载更多项目（还有 {remaining} 个）
+          </button>
+        </div>
+      )}
     </div>
   )
 }

@@ -12,7 +12,7 @@ export interface NavItem {
 
 export interface ToastMessage {
   id: number
-  tone: 'success' | 'info' | 'warning'
+  tone: 'success' | 'info' | 'warning' | 'danger'
   title: string
   message: string
 }

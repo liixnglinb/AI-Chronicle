@@ -1,0 +1,220 @@
+/* 命令面板（⌘/Ctrl+K 全局意图与穿透检索） */
+
+.desk-cmd-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  z-index: var(--vr-z-palette);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 10vh var(--vr-sp-6) var(--vr-sp-6);
+}
+
+.desk-cmd-modal {
+  width: 580px;
+  max-width: 100%;
+  background: var(--vr-surface-overlay);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--vr-border-strong);
+  border-radius: var(--vr-radius-lg);
+  box-shadow: var(--vr-shadow-modal);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: deskCmdIn var(--vr-motion-dur-normal) var(--vr-motion-ease);
+}
+
+.desk-cmd-input-bar {
+  height: 48px;
+  flex: 0 0 auto;
+  border-bottom: 1px solid var(--vr-border-subtle);
+  display: flex;
+  align-items: center;
+  padding: 0 var(--vr-sp-4);
+  gap: var(--vr-sp-3);
+}
+
+.desk-cmd-search-ico {
+  color: var(--vr-text-faint);
+  flex: 0 0 auto;
+}
+
+.desk-cmd-input {
+  flex: 1;
+  height: 100%;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: var(--vr-text-sm);
+  color: var(--vr-text-main);
+  outline: none;
+}
+
+.desk-cmd-input::placeholder {
+  color: var(--vr-text-faint);
+}
+
+.desk-cmd-close-btn {
+  background: transparent;
+  border: none;
+  color: var(--vr-text-faint);
+  cursor: pointer;
+  padding: 3px;
+  border-radius: var(--vr-radius-xs);
+  flex: 0 0 auto;
+}
+
+.desk-cmd-close-btn:hover {
+  color: var(--vr-text-main);
+  background: var(--vr-surface-hover);
+}
+
+.desk-cmd-scroll {
+  max-height: 400px;
+  overflow-y: auto;
+  padding: var(--vr-sp-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--vr-sp-3);
+}
+
+.desk-cmd-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.desk-cmd-group-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--vr-text-faint);
+  padding: 4px var(--vr-sp-3);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.desk-cmd-item {
+  display: flex;
+  align-items: center;
+  gap: var(--vr-sp-3);
+  padding: 8px var(--vr-sp-3);
+  border-radius: var(--vr-radius-sm);
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  width: 100%;
+  font-family: inherit;
+  text-align: left;
+  transition: background var(--vr-motion-dur-fast) var(--vr-motion-ease);
+}
+
+.desk-cmd-item:hover {
+  background: var(--vr-surface-hover);
+}
+
+.desk-cmd-item.selected {
+  background: var(--vr-surface-active);
+}
+
+.desk-cmd-item-icon {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  border-radius: var(--vr-radius-xs);
+  background: var(--vr-bg-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--vr-text-muted);
+}
+
+.desk-cmd-session-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  margin: 0 8px;
+}
+
+.desk-cmd-item-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.desk-cmd-item-label {
+  font-size: var(--vr-text-xs);
+  color: var(--vr-text-main);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.desk-cmd-item-hint {
+  font-size: var(--vr-text-2xs);
+  color: var(--vr-text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.desk-cmd-enter-ico {
+  color: var(--vr-text-faint);
+  flex: 0 0 auto;
+}
+
+.desk-cmd-empty {
+  padding: var(--vr-sp-6);
+  text-align: center;
+  font-size: var(--vr-text-xs);
+  color: var(--vr-text-faint);
+}
+
+.desk-cmd-footer {
+  height: 34px;
+  flex: 0 0 auto;
+  background: var(--vr-bg-subtle);
+  border-top: 1px solid var(--vr-border-hairline);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--vr-sp-4);
+  font-size: var(--vr-text-2xs);
+  color: var(--vr-text-faint);
+}
+
+.desk-cmd-shortcut-hints {
+  display: flex;
+  gap: var(--vr-sp-3);
+}
+
+.desk-cmd-shortcut-hints kbd {
+  background: var(--vr-surface);
+  border: 1px solid var(--vr-border-subtle);
+  border-radius: 3px;
+  padding: 1px 4px;
+  font-family: var(--vr-font-mono);
+  font-size: 10px;
+  margin-right: 2px;
+}
+
+.desk-cmd-count-hint {
+  font-family: var(--vr-font-mono);
+}
+
+@keyframes deskCmdIn {
+  from {
+    transform: translateY(-8px) scale(0.98);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}

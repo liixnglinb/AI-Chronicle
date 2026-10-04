@@ -1,0 +1,13 @@
+/*
+ * 样式入口。顺序即层叠顺序：
+ *   令牌 → 基础动效 → 外壳 → 反馈层 → 命令面板 → 图表 → 页面 → 设置
+ * 后加载的文件可以覆盖前面文件的同名选择器，反之不行。
+ */
+@import './voyra-tokens.css';
+@import './motion.css';
+@import './app-shell.css';
+@import './feedback.css';
+@import './command-palette.css';
+@import './charts.css';
+@import './pages.css';
+@import './settings.css';

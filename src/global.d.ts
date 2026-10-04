@@ -34,6 +34,16 @@ declare global {
     mtime: number
   }
 
+  /** 数据源探测路径：spec 为声明值（~ / %APPDATA% 形态），resolved 为本机绝对路径 */
+  interface SourcePathInfo {
+    spec: string
+    resolved: string
+    exists: boolean
+  }
+
+  /** 采集协议：jsonl 逐行 / sqlite 只读数据库 / zstd 压缩 / none 仅探测 */
+  type SourceProtocol = 'jsonl' | 'sqlite' | 'zstd' | 'none'
+
   interface IngestSession {
     id: string
     tool: string
@@ -62,6 +72,24 @@ declare global {
     lastActivity: number | null
     detail: string
     note: string
+    /** 协议特征：接入中心据此说明「怎么读到的」 */
+    protocol?: SourceProtocol
+    /** 访问方式：本应用一律只读 */
+    access?: 'read-only' | 'none'
+    /** 接入指导：期望的目录结构 */
+    hint?: string
+    /** 真实探测路径与存在性 */
+    paths?: SourcePathInfo[]
+  }
+
+  /** 采集阶段：枚举 → 解析 → 挂载成果 → 完成 */
+  type IngestPhase = 'enumerate' | 'parse' | 'artifacts' | 'done'
+
+  interface IngestProgress {
+    phase: IngestPhase
+    detail: string
+    index: number
+    total: number
   }
 
   interface IngestData {
@@ -134,6 +162,7 @@ declare global {
           probes?: Array<{ id: string; label: string; ok: boolean; ms: number }>
         }) => void,
       ) => () => void
+      onIngestProgress: (callback: (progress: IngestProgress) => void) => () => void
     }
   }
 }

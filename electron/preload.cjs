@@ -29,4 +29,10 @@ contextBridge.exposeInMainWorld('desktopAPI', {
     ipcRenderer.on('desktop:update-status', listener)
     return () => ipcRenderer.removeListener('desktop:update-status', listener)
   },
+  // 采集阶段感知：枚举文件 → 解析 JSONL/SQLite → 挂载成果 → 完成
+  onIngestProgress: (callback) => {
+    const listener = (_event, payload) => callback(payload)
+    ipcRenderer.on('desktop:ingest-progress', listener)
+    return () => ipcRenderer.removeListener('desktop:ingest-progress', listener)
+  },
 })

@@ -1177,6 +1177,12 @@ function runIngest(force = false) {
     cachePath: path.join(app.getPath('userData'), 'chronicle-ingest-cache.json'),
     // 缓存内容含会话标题与项目路径，交给系统钥匙串加密后落盘
     crypto: buildCacheCrypto(),
+    // 阶段感知：全量采集 3~15 秒，必须让渲染层知道当前卡在哪一步
+    onProgress: (payload) => {
+      const target = mainWindow()
+      if (!target || target.isDestroyed()) return
+      target.webContents.send('desktop:ingest-progress', payload)
+    },
   })
     .then((result) => {
       ingestResult = result

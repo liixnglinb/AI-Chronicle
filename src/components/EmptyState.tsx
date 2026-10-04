@@ -1,40 +1,30 @@
 import type { ReactNode } from 'react'
 import { Inbox, MonitorSmartphone } from 'lucide-react'
 import { classNames } from '../lib/utils'
-import { PageHeader } from './PageHeader'
-import { ICON_SIZE } from '../lib/ui'
 
 interface EmptyStateProps {
   title: string
   description?: ReactNode
   icon?: ReactNode
-  tone?: 'neutral' | 'error'
   /** 紧凑形态：用于面板内部，不撑开整页高度 */
   compact?: boolean
   actions?: ReactNode
 }
 
-/** 统一的空状态。取代此前 6 个页面里各自复制的空状态标记。 */
+/** 统一空状态：取代各页各自复制的空状态标记 */
 export function EmptyState({
   title,
   description,
   icon,
-  tone = 'neutral',
   compact = false,
   actions,
 }: EmptyStateProps) {
   return (
-    <div
-      className={classNames(
-        'empty-state',
-        tone === 'error' && 'empty-state-error',
-        compact && 'empty-state-compact',
-      )}
-    >
-      <span className="empty-state-icon">{icon ?? <Inbox size={ICON_SIZE.lg} />}</span>
-      <strong>{title}</strong>
-      {description ? <span>{description}</span> : null}
-      {actions ? <div className="empty-state-actions">{actions}</div> : null}
+    <div className={classNames('desk-empty', compact && 'is-compact')}>
+      <span className="desk-empty-icon">{icon ?? <Inbox size={22} />}</span>
+      <strong className="desk-empty-title">{title}</strong>
+      {description ? <span className="desk-empty-desc">{description}</span> : null}
+      {actions ? <div className="desk-empty-actions">{actions}</div> : null}
     </div>
   )
 }
@@ -45,13 +35,10 @@ export function EmptyState({
  */
 export function DesktopOnlyPage({ title, description }: { title: string; description: string }) {
   return (
-    <div className="page">
-      <PageHeader kicker="桌面版功能" title={title} />
-      <EmptyState
-        icon={<MonitorSmartphone size={ICON_SIZE.lg} />}
-        title="需要桌面版"
-        description={description}
-      />
-    </div>
+    <EmptyState
+      icon={<MonitorSmartphone size={22} />}
+      title={`${title} · 需要桌面版`}
+      description={description}
+    />
   )
 }

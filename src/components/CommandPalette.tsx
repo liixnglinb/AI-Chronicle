@@ -1,204 +1,289 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Moon, RefreshCw, Search, X } from 'lucide-react'
+import { CornerDownLeft, Download, Moon, RefreshCw, Search, Sun, X } from 'lucide-react'
 import { navItems } from '../data/nav'
 import { useChronicle } from '../lib/store'
+import { formatTimeRange } from '../lib/format'
 import { useFocusTrap } from '../lib/useFocusTrap'
-import { dayKeyOf, formatTimeRange } from '../lib/format'
+import { classNames } from '../lib/utils'
 import type { ToastMessage, ViewId } from '../types'
-import { ICON_SIZE } from '../lib/ui'
 
 interface CommandPaletteProps {
+  theme: 'light' | 'dark'
   onClose: () => void
   onNavigate: (view: ViewId, search?: string) => void
   onThemeToggle: () => void
   onAction: (toast: Omit<ToastMessage, 'id'>) => void
+  /** 从今日工作台跳到「导出日报」等页面内动作 */
+  onExportDaily: () => void
 }
 
-interface PaletteItem {
-  key: string
+interface PaletteAction {
+  id: string
   label: string
   hint: string
-  /** 结果行左侧的图标位：命令用图标，会话用软件色点 */
-  icon?: React.ReactNode
+  icon: React.ReactNode
   run: () => void
 }
 
+/**
+ * ⌘/Ctrl+K 命令面板。
+ * 分为「功能指令」与「匹配会话」两区，↑↓ 穿透两区，Enter 执行，Esc 关闭。
+ * 选中行自动 scrollIntoView，保证键盘导航时高亮始终在视口内。
+ */
 export function CommandPalette({
+  theme,
   onClose,
   onNavigate,
   onThemeToggle,
   onAction,
+  onExportDaily,
 }: CommandPaletteProps) {
+  const { data, refresh } = useChronicle()
   const [query, setQuery] = useState('')
-  const [active, setActive] = useState(0)
-  const paletteRef = useRef<HTMLDivElement>(null)
-  const { data, refresh, isDesktop, loading } = useChronicle()
+  const [selectedIndex, setSelectedIndex] = useState(0)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const listRef = useRef<HTMLDivElement>(null)
 
-  // 焦点陷阱：Tab 不会跑到遮罩后的页面，Esc 关闭后焦点归还给触发按钮
-  useFocusTrap(paletteRef, true, onClose)
+  useFocusTrap(containerRef, true, onClose)
 
-  const items = useMemo<PaletteItem[]>(() => {
-    const list: PaletteItem[] = navItems.map((item) => ({
-      key: `nav-${item.id}`,
-      label: `前往 ${item.label}`,
+  const allSessions = useMemo(() => data?.sessions ?? [], [data])
+
+  // 1. 静态动作项：导航 + 视图内动作
+  const staticActions = useMemo<PaletteAction[]>(() => {
+    const navActions: PaletteAction[] = navItems.map((item) => ({
+      id: `nav-${item.id}`,
+      label: `跳转到 ${item.label}`,
       hint: item.description,
-      icon: <item.icon size={ICON_SIZE.xs} />,
+      icon: <item.icon size={14} />,
       run: () => onNavigate(item.id),
     }))
-    list.push({
-      key: 'theme',
-      label: '切换深浅主题',
-      hint: '外观',
-      icon: <Moon size={ICON_SIZE.xs} />,
-      run: onThemeToggle,
-    })
-    if (isDesktop && !loading) {
-      list.push({
-        key: 'refresh',
-        label: '重新采集数据',
-        hint: '重新扫描全部接入来源',
-        icon: <RefreshCw size={ICON_SIZE.xs} />,
+
+    const opActions: PaletteAction[] = [
+      {
+        id: 'op-refresh',
+        label: '立即重新采集全量数据源',
+        hint: '强制扫描本机全部 AI 工具归档',
+        icon: <RefreshCw size={14} />,
         run: () => {
           void refresh(true).then((ok) => {
             if (!ok) return
             onAction({
               tone: 'success',
-              title: '已重新采集',
-              message: '采集结果已更新；异常来源可在接入中心查看。',
+              title: '采集同步完毕',
+              message: '已同步本机所有会话与产出',
             })
           })
         },
-      })
+      },
+      {
+        id: 'op-theme',
+        label: `切换到${theme === 'dark' ? '暖灰浅色' : '黑曜深色'}主题`,
+        hint: '主题与窗口镶边实时联动',
+        icon: theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />,
+        run: onThemeToggle,
+      },
+      {
+        id: 'op-report',
+        label: '导出今日 Markdown 日报',
+        hint: '把今日成果写成可归档文件',
+        icon: <Download size={14} />,
+        run: onExportDaily,
+      },
+    ]
+
+    return [...navActions, ...opActions]
+  }, [onNavigate, onThemeToggle, refresh, onAction, onExportDaily, theme])
+
+  // 2. 复合意图检索：动作 + 会话双分区
+  const results = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) {
+      return { actions: staticActions.slice(0, 6), sessions: allSessions.slice(0, 5) }
     }
-    // 会话搜索
-    const needle = query.trim().toLowerCase()
-    const commands = needle
-      ? list.filter((item) => (item.label + ' ' + item.hint).toLowerCase().includes(needle))
-      : list
-    if (query.trim()) {
-      const q = query.trim().toLowerCase()
-      const matches = (data?.sessions ?? [])
+    return {
+      actions: staticActions.filter(
+        (a) => a.label.toLowerCase().includes(q) || a.hint.toLowerCase().includes(q),
+      ),
+      sessions: allSessions
         .filter(
           (s) =>
             s.title.toLowerCase().includes(q) ||
             s.project.toLowerCase().includes(q) ||
             s.toolName.toLowerCase().includes(q) ||
-            (s.artifacts ?? []).some((artifact) => artifact.name.toLowerCase().includes(q)),
+            s.projectPath.toLowerCase().includes(q),
         )
-        .sort((a, b) => (b.start || 0) - (a.start || 0))
-        .slice(0, 6)
-      for (const s of matches) {
-        const today = dayKeyOf(Date.now()) === dayKeyOf(s.start || 0)
-        commands.push({
-          key: `session-${s.id}`,
-          label: s.title,
-          hint: `${s.toolName} · ${s.project} · ${
-            today
-              ? formatTimeRange(s.start, s.end)
-              : new Date(s.start || 0).toLocaleDateString('zh-CN')
-          }`,
-          icon: <span className="tool-dot" style={{ ['--tool-color' as string]: s.toolColor }} />,
-          run: () => onNavigate('history', s.title),
-        })
-      }
+        .slice(0, 20),
     }
-    return commands
-  }, [query, data, onNavigate, onThemeToggle, onAction, refresh, isDesktop, loading])
+  }, [query, staticActions, allSessions])
+
+  const flattenedTotal = results.actions.length + results.sessions.length
 
   useEffect(() => {
-    paletteRef.current
-      ?.querySelector('#command-option-' + active)
-      ?.scrollIntoView({ block: 'nearest' })
-  }, [active, items.length])
+    setSelectedIndex(0)
+  }, [query])
 
+  // 滚动保证高亮项可见
   useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if (!(event.target instanceof HTMLInputElement) || event.isComposing) return
-      // Esc 由 useFocusTrap 统一处理
-      if (event.key === 'ArrowDown') {
-        event.preventDefault()
-        setActive((v) => Math.max(0, Math.min(v + 1, items.length - 1)))
-      }
-      if (event.key === 'ArrowUp') {
-        event.preventDefault()
-        setActive((v) => Math.max(v - 1, 0))
-      }
-      if (event.key === 'Enter') {
-        event.preventDefault()
-        const item = items[active]
-        if (item) {
-          item.run()
-          onClose()
-        }
-      }
+    const active = listRef.current?.querySelector('.desk-cmd-item.selected')
+    if (active) active.scrollIntoView({ block: 'nearest' })
+  }, [selectedIndex])
+
+  function runSelected() {
+    if (selectedIndex < results.actions.length) {
+      results.actions[selectedIndex].run()
+      return
     }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [items, active, onClose])
+    const session = results.sessions[selectedIndex - results.actions.length]
+    if (session) {
+      onNavigate('history', session.title)
+    }
+  }
+
+  function handleKeyDown(event: React.KeyboardEvent) {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      setSelectedIndex((prev) => (prev + 1 < flattenedTotal ? prev + 1 : 0))
+      return
+    }
+    if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      setSelectedIndex((prev) => (prev - 1 >= 0 ? prev - 1 : Math.max(flattenedTotal - 1, 0)))
+      return
+    }
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      runSelected()
+    }
+  }
 
   return (
-    <div className="command-overlay" onClick={onClose}>
+    <div
+      className="desk-cmd-backdrop"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose()
+      }}
+    >
       <div
-        className="command-palette"
-        ref={paletteRef}
+        className="desk-cmd-modal"
+        ref={containerRef}
         role="dialog"
         aria-modal="true"
         aria-label="命令面板"
         tabIndex={-1}
+        onKeyDown={handleKeyDown}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="command-input-row">
-          <Search size={ICON_SIZE.sm} />
+        <div className="desk-cmd-input-bar">
+          <Search size={15} className="desk-cmd-search-ico" />
           <input
-            value={query}
-            onChange={(e) => {
-              setQuery(e.target.value)
-              setActive(0)
-            }}
-            placeholder="搜索会话、项目、文件或执行命令…"
-            aria-label="搜索会话、项目、文件或执行命令"
+            type="text"
+            placeholder="搜索命令、操作或跨工具历史会话…"
+            aria-label="搜索命令、操作或跨工具历史会话"
             role="combobox"
             aria-expanded="true"
-            aria-controls="command-results"
             aria-autocomplete="list"
-            aria-activedescendant={items[active] ? `command-option-${active}` : undefined}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="desk-cmd-input"
           />
-          <button className="icon-button" type="button" onClick={onClose} aria-label="关闭命令面板">
-            <X size={ICON_SIZE.sm} />
+          <button onClick={onClose} className="desk-cmd-close-btn" aria-label="关闭命令面板">
+            <X size={14} />
           </button>
         </div>
-        <div className="command-results" id="command-results" role="listbox" aria-label="命令结果">
-          {items.map((item, index) => (
-            <button
-              key={item.key}
-              id={`command-option-${index}`}
-              type="button"
-              tabIndex={-1}
-              role="option"
-              aria-selected={index === active}
-              className={
-                index === active ? 'command-result command-result-active' : 'command-result'
-              }
-              onMouseEnter={() => setActive(index)}
-              onClick={() => {
-                item.run()
-                onClose()
-              }}
-            >
-              <span className="command-result-icon">{item.icon}</span>
-              <span className="command-result-copy">
-                <strong>{item.label}</strong>
-                <small>{item.hint}</small>
-              </span>
-            </button>
-          ))}
-          {items.length === 0 && <div className="command-empty">没有匹配的结果</div>}
+
+        <div className="desk-cmd-scroll" ref={listRef} role="listbox" aria-label="命令结果">
+          {results.actions.length > 0 && (
+            <div className="desk-cmd-group">
+              <span className="desk-cmd-group-label">功能指令</span>
+              {results.actions.map((action, idx) => (
+                <div
+                  key={action.id}
+                  id={`desk-cmd-option-${idx}`}
+                  role="option"
+                  aria-selected={selectedIndex === idx}
+                  className={classNames('desk-cmd-item', selectedIndex === idx && 'selected')}
+                  onClick={() => {
+                    action.run()
+                    onClose()
+                  }}
+                  onMouseEnter={() => setSelectedIndex(idx)}
+                >
+                  <span className="desk-cmd-item-icon">{action.icon}</span>
+                  <span className="desk-cmd-item-body">
+                    <strong className="desk-cmd-item-label">{action.label}</strong>
+                    <small className="desk-cmd-item-hint">{action.hint}</small>
+                  </span>
+                  {selectedIndex === idx && (
+                    <CornerDownLeft size={12} className="desk-cmd-enter-ico" />
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {results.sessions.length > 0 && (
+            <div className="desk-cmd-group">
+              <span className="desk-cmd-group-label">匹配会话记录</span>
+              {results.sessions.map((session, sIdx) => {
+                const itemIndex = results.actions.length + sIdx
+                return (
+                  <div
+                    key={session.id}
+                    id={`desk-cmd-option-${itemIndex}`}
+                    role="option"
+                    aria-selected={selectedIndex === itemIndex}
+                    className={classNames(
+                      'desk-cmd-item',
+                      selectedIndex === itemIndex && 'selected',
+                    )}
+                    onClick={() => {
+                      onNavigate('history', session.title)
+                      onClose()
+                    }}
+                    onMouseEnter={() => setSelectedIndex(itemIndex)}
+                  >
+                    <span
+                      className="desk-cmd-session-dot"
+                      style={{ backgroundColor: session.toolColor }}
+                    />
+                    <span className="desk-cmd-item-body">
+                      <strong className="desk-cmd-item-label" title={session.title}>
+                        {session.title || '（未命名会话）'}
+                      </strong>
+                      <small className="desk-cmd-item-hint">
+                        {session.project} · {session.toolName} ·{' '}
+                        {formatTimeRange(session.start, session.end)}
+                      </small>
+                    </span>
+                    {selectedIndex === itemIndex && (
+                      <CornerDownLeft size={12} className="desk-cmd-enter-ico" />
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {flattenedTotal === 0 && (
+            <div className="desk-cmd-empty">未检索到匹配项，可尝试搜索工具名称或工作目录</div>
+          )}
         </div>
-        <div className="command-footer">
-          <span>↑↓ 选择</span>
-          <span>Enter 执行</span>
-          <span>Esc 关闭</span>
-        </div>
+
+        <footer className="desk-cmd-footer">
+          <div className="desk-cmd-shortcut-hints">
+            <span>
+              <kbd>↑</kbd>
+              <kbd>↓</kbd> 导航
+            </span>
+            <span>
+              <kbd>Enter</kbd> 执行
+            </span>
+            <span>
+              <kbd>Esc</kbd> 退出
+            </span>
+          </div>
+          <span className="desk-cmd-count-hint">已聚合 {allSessions.length} 条会话</span>
+        </footer>
       </div>
     </div>
   )

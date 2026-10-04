@@ -1,244 +1,216 @@
 import { useMemo, useState } from 'react'
 import {
+  ArrowUpDown,
   Database,
+  ExternalLink,
   File,
   FileCode2,
   FileImage,
   FileText,
   FileVideo,
-  FolderKanban,
-  HardDrive,
-  LayoutGrid,
+  FolderOpen,
 } from 'lucide-react'
 import { useChronicle } from '../lib/store'
-import { dayKeyOf, formatDayLabel, formatTimeRange, shortenPath } from '../lib/format'
+import { formatClock, shortenPath } from '../lib/format'
+import { projectDisplayName } from '../lib/paths'
 import { useIncrementalList } from '../lib/useIncrementalList'
-import { ToolDot } from '../components/ToolDot'
-import { PageHeader } from '../components/PageHeader'
+import { openLocalPath } from '../lib/desktop'
 import { EmptyState, DesktopOnlyPage } from '../components/EmptyState'
-import { SummaryStrip } from '../components/SummaryStrip'
-import { Select } from '../components/Field'
-import { LoadMore } from '../components/Progress'
 import { SkeletonPage } from '../components/Skeleton'
 import { classNames } from '../lib/utils'
 import type { ArtifactRecord } from '../types'
-import type { LucideIcon } from 'lucide-react'
-import { ICON_SIZE } from '../lib/ui'
-import { useViewState, isFilter } from '../lib/useViewState'
-import { Button } from '../components/Button'
 
 interface LibraryPageProps {
   searchQuery: string
   onClearSearch: () => void
 }
 
-type ArtifactKind = 'all' | 'code' | 'doc' | 'image' | 'video' | 'data'
-type ArtifactSort = 'recent' | 'name' | 'size'
+type KindCategory = 'all' | 'code' | 'doc' | 'image' | 'video' | 'data' | 'other'
 
-interface ArtifactRow extends ArtifactRecord {
-  kind: ArtifactKind
-  tool: string
+interface FlatArtifact extends ArtifactRecord {
   toolName: string
   toolColor: string
+  sessionTitle: string
   project: string
   projectPath: string
-  sessionTitle: string
-  range: string
-  start: number
-  day: string
-  /** 相对项目目录的短路径，用于列表展示 */
-  shortPath: string
+  kind: KindCategory
 }
 
-const TEXT_EXT = new Set(['.md', '.txt', '.doc', '.docx', '.pdf', '.csv', '.json', '.yaml', '.yml'])
 const CODE_EXT = new Set([
   '.ts',
   '.tsx',
   '.js',
   '.jsx',
-  '.py',
-  '.cjs',
   '.mjs',
+  '.cjs',
+  '.rs',
+  '.py',
+  '.go',
   '.java',
   '.kt',
-  '.go',
-  '.rs',
   '.c',
   '.h',
   '.cpp',
   '.cs',
   '.swift',
+  '.go',
   '.html',
   '.css',
   '.scss',
-  '.sql',
-  '.sh',
-  '.bat',
-  '.ps1',
+  '.less',
   '.vue',
+  '.svelte',
   '.dart',
   '.php',
   '.rb',
+  '.sh',
+  '.bat',
+  '.ps1',
+  '.sql',
+])
+const DOC_EXT = new Set([
+  '.md',
+  '.txt',
+  '.pdf',
+  '.doc',
+  '.docx',
+  '.rtf',
+  '.ppt',
+  '.pptx',
+  '.xls',
+  '.xlsx',
 ])
 const IMAGE_EXT = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.ico', '.bmp'])
 const VIDEO_EXT = new Set(['.mp4', '.mov', '.webm', '.mkv', '.avi'])
-const DATA_EXT = new Set(['.db', '.sqlite', '.csv', '.xlsx', '.json'])
+const DATA_EXT = new Set([
+  '.json',
+  '.yaml',
+  '.yml',
+  '.toml',
+  '.ini',
+  '.env',
+  '.csv',
+  '.xml',
+  '.db',
+  '.sqlite',
+])
 
-const KIND_OPTIONS: Array<[ArtifactKind, string]> = [
-  ['all', '全部'],
-  ['code', '代码'],
-  ['doc', '文档'],
-  ['image', '图像'],
-  ['video', '视频'],
-  ['data', '数据'],
-]
+function extOf(name: string): string {
+  const idx = name.lastIndexOf('.')
+  return idx < 0 ? '' : name.slice(idx).toLowerCase()
+}
 
-const SORT_OPTIONS: Array<[ArtifactSort, string]> = [
-  ['recent', '最近'],
-  ['name', '名称'],
-  ['size', '大小'],
-]
-
-function kindOf(name: string): ArtifactKind {
-  const ext = name.slice(name.lastIndexOf('.')).toLowerCase()
+function resolveKind(fileName: string): KindCategory {
+  const ext = extOf(fileName)
   if (CODE_EXT.has(ext)) return 'code'
+  if (DOC_EXT.has(ext)) return 'doc'
   if (IMAGE_EXT.has(ext)) return 'image'
   if (VIDEO_EXT.has(ext)) return 'video'
   if (DATA_EXT.has(ext)) return 'data'
-  if (TEXT_EXT.has(ext)) return 'doc'
-  return 'doc'
+  // 未识别的扩展名不硬塞进某一类：单独归为 other，避免「其他」类文件里全是代码
+  return 'other'
 }
 
-function iconForExt(name: string): { Icon: LucideIcon; tone: string } {
-  const ext = name.slice(name.lastIndexOf('.')).toLowerCase()
-  if (VIDEO_EXT.has(ext)) return { Icon: FileVideo, tone: 'var(--violet)' }
-  if (IMAGE_EXT.has(ext)) return { Icon: FileImage, tone: 'var(--amber)' }
-  if (CODE_EXT.has(ext)) return { Icon: FileCode2, tone: 'var(--blue)' }
-  if (TEXT_EXT.has(ext)) return { Icon: FileText, tone: 'var(--coral)' }
-  if (DATA_EXT.has(ext)) return { Icon: Database, tone: 'var(--green)' }
-  return { Icon: File, tone: 'var(--text-faint)' }
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB']
+  const i = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)))
+  const value = bytes / Math.pow(1024, i)
+  return `${i === 0 ? value : value.toFixed(1)} ${units[i]}`
 }
 
-function formatSize(bytes: number): string {
-  if (!Number.isFinite(bytes)) return '未知'
-  if (bytes >= 1048576) return `${(bytes / 1048576).toFixed(1)} MiB`
-  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KiB`
-  return `${bytes} B`
+const KIND_META: Record<KindCategory, { label: string; Icon: typeof File; tone: string }> = {
+  all: { label: '全部', Icon: File, tone: 'other' },
+  code: { label: '代码', Icon: FileCode2, tone: 'code' },
+  doc: { label: '文档', Icon: FileText, tone: 'doc' },
+  image: { label: '图像', Icon: FileImage, tone: 'image' },
+  video: { label: '视频', Icon: FileVideo, tone: 'video' },
+  data: { label: '数据与配置', Icon: Database, tone: 'data' },
+  other: { label: '其他', Icon: File, tone: 'other' },
 }
 
+/**
+ * 成果集：表格化分类列表。
+ * 每一行都标明「哪个项目、哪个软件、哪个会话」产生的这个文件，
+ * 并提供「打开文件」与「在文件夹中定位」双入口。
+ */
 export function LibraryPage({ searchQuery, onClearSearch }: LibraryPageProps) {
   const { data, loading, isDesktop } = useChronicle()
-  const [openPath, setOpenPath] = useState<string | null>(null)
-  const [kind, setKind] = useViewState<ArtifactKind>(
-    'library-kind',
-    'all',
-    (v): v is ArtifactKind => ['all', 'code', 'doc', 'image', 'video', 'data'].includes(String(v)),
-  )
-  const [projectFilter, setProjectFilter] = useViewState('library-project', 'all', isFilter)
-  const [toolFilter, setToolFilter] = useViewState('library-tool', 'all', isFilter)
-  const [sort, setSort] = useViewState<ArtifactSort>(
-    'library-sort',
-    'recent',
-    (v): v is ArtifactSort => v === 'recent' || v === 'name' || v === 'size',
+  const [kindFilter, setKindFilter] = useState<KindCategory>('all')
+  const [sortBy, setSortBy] = useState<'mtime' | 'size'>('mtime')
+
+  const allSessions = useMemo(() => data?.sessions ?? [], [data])
+
+  const allProjectPaths = useMemo(
+    () => allSessions.map((s) => s.projectPath || s.project).filter(Boolean),
+    [allSessions],
   )
 
-  const rows = useMemo<ArtifactRow[]>(() => {
-    const list: ArtifactRow[] = []
-    for (const s of data?.sessions ?? []) {
-      for (const a of s.artifacts ?? []) {
+  // 展平所有会话内捕获的成果文件，同一路径只保留最近一次
+  const allArtifacts = useMemo(() => {
+    const byPath = new Map<string, FlatArtifact>()
+    const list: FlatArtifact[] = []
+    for (const s of allSessions) {
+      for (const art of s.artifacts ?? []) {
         list.push({
-          ...a,
-          kind: kindOf(a.name),
-          tool: s.tool,
+          ...art,
           toolName: s.toolName,
           toolColor: s.toolColor,
+          sessionTitle: s.title,
           project: s.project,
           projectPath: s.projectPath,
-          sessionTitle: s.title,
-          range: formatTimeRange(s.start, s.end),
-          start: s.start || 0,
-          day: s.start ? dayKeyOf(s.start) : '',
-          shortPath: shortenPath(a.path, s.projectPath),
+          kind: resolveKind(art.name),
         })
       }
     }
-
-    const byPath = new Map<string, ArtifactRow>()
-    for (const row of list.sort((a, b) => b.mtime - a.mtime)) {
-      if (!byPath.has(row.path)) byPath.set(row.path, row)
+    list.sort((a, b) => b.mtime - a.mtime)
+    for (const item of list) {
+      if (byPath.has(item.path)) continue
+      byPath.set(item.path, item)
     }
     return [...byPath.values()]
-  }, [data])
+  }, [allSessions])
 
-  const projects = useMemo(() => {
-    return [...new Set(rows.map((row) => row.project))]
-      .filter(Boolean)
-      .sort((a, b) => a.localeCompare(b, 'zh-CN'))
-  }, [rows])
-
-  const tools = useMemo(() => {
-    const map = new Map<string, { name: string; color: string; count: number }>()
-    for (const row of rows) {
-      const item = map.get(row.tool) || { name: row.toolName, color: row.toolColor, count: 0 }
-      item.count += 1
-      map.set(row.tool, item)
+  const kindCounts = useMemo(() => {
+    const counts = new Map<KindCategory, number>()
+    for (const item of allArtifacts) {
+      counts.set(item.kind, (counts.get(item.kind) ?? 0) + 1)
     }
-    return [...map.values()].sort((a, b) => b.count - a.count)
-  }, [rows])
+    return counts
+  }, [allArtifacts])
 
-  const filtered = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase()
-    const result = rows.filter((row) => {
-      if (kind !== 'all' && row.kind !== kind) return false
-      if (projectFilter !== 'all' && row.project !== projectFilter) return false
-      if (toolFilter !== 'all' && row.toolName !== toolFilter) return false
-      if (!query) return true
-      return (
-        row.name.toLowerCase().includes(query) ||
-        row.path.toLowerCase().includes(query) ||
-        row.project.toLowerCase().includes(query) ||
-        row.toolName.toLowerCase().includes(query)
+  const filteredList = useMemo(() => {
+    let list = allArtifacts
+    if (kindFilter !== 'all') {
+      list = list.filter((item) => item.kind === kindFilter)
+    }
+    const q = searchQuery.trim().toLowerCase()
+    if (q) {
+      list = list.filter(
+        (item) =>
+          item.name.toLowerCase().includes(q) ||
+          item.path.toLowerCase().includes(q) ||
+          item.project.toLowerCase().includes(q) ||
+          item.toolName.toLowerCase().includes(q),
       )
-    })
+    }
+    return list.sort((a, b) => (sortBy === 'size' ? b.size - a.size : b.mtime - a.mtime))
+  }, [allArtifacts, kindFilter, searchQuery, sortBy])
 
-    return result.sort((a, b) => {
-      if (sort === 'name') return a.name.localeCompare(b.name, 'zh-CN')
-      if (sort === 'size') return b.size - a.size
-      return b.mtime - a.mtime
-    })
-  }, [rows, searchQuery, kind, projectFilter, toolFilter, sort])
-
-  // 成果集可能上百行，首屏只渲染前 40 行，其余按需追加
-  const {
-    visibleItems: visibleRows,
-    hasMore,
-    remaining,
-    loadMore,
-  } = useIncrementalList(filtered, {
+  const { visibleItems, hasMore, loadMore, remaining } = useIncrementalList(filteredList, {
     pageSize: 40,
-    resetKey: `${kind}|${projectFilter}|${toolFilter}|${sort}|${searchQuery}`,
+    resetKey: `${kindFilter}_${sortBy}_${searchQuery}`,
   })
 
-  const byDay = useMemo(() => {
-    const map = new Map<string, ArtifactRow[]>()
-    for (const row of visibleRows) {
-      const key = row.day || '未知日期'
-      if (!map.has(key)) map.set(key, [])
-      map.get(key)!.push(row)
-    }
-    return [...map.entries()].sort((a, b) => (a[0] < b[0] ? 1 : -1))
-  }, [visibleRows])
+  async function openArtifact(path: string) {
+    await openLocalPath(path)
+  }
 
-  const totalSize = filtered.reduce((sum, row) => sum + row.size, 0)
-  const projectCount = new Set(filtered.map((row) => row.project)).size
-  const toolCount = new Set(filtered.map((row) => row.tool)).size
-
-  async function open(row: ArtifactRow) {
-    setOpenPath(row.path)
-    const result = await window.desktopAPI?.openPath(row.path)
-    if (result && !result.ok) {
-      setOpenPath(null)
-    }
+  async function revealInFolder(path: string) {
+    // 在文件夹中定位：取所在目录交给系统文件管理器
+    const idx = Math.max(path.lastIndexOf('\\'), path.lastIndexOf('/'))
+    const dir = idx > 0 ? path.slice(0, idx) : path
+    await openLocalPath(dir)
   }
 
   if (!isDesktop) {
@@ -250,170 +222,148 @@ export function LibraryPage({ searchQuery, onClearSearch }: LibraryPageProps) {
     )
   }
 
-  return (
-    <div className="page">
-      <PageHeader
-        kicker={
-          filtered.length
-            ? `${filtered.length} 个文件 · ${projectCount} 个项目 · 点击可直接打开`
-            : '从会话对应的项目目录提取会话期间改动过的文件'
-        }
-        title="成果集"
+  if (loading && !data) return <SkeletonPage cards={0} rows={6} banner={false} />
+
+  if (allArtifacts.length === 0) {
+    return (
+      <EmptyState
+        title="暂无捕获的成果产出文件"
+        description="当 AI 会话在其时间窗内修改或生成了本地代码和文档时，记录将在此呈现。"
       />
+    )
+  }
 
-      {rows.length > 0 && (
-        <SummaryStrip
-          items={[
-            {
-              key: 'files',
-              label: '文件总数',
-              value: filtered.length,
-              icon: <FileText size={ICON_SIZE.sm} />,
-              tone: 'primary',
-            },
-            {
-              key: 'projects',
-              label: '涉及项目',
-              value: projectCount,
-              icon: <FolderKanban size={ICON_SIZE.sm} />,
-            },
-            {
-              key: 'tools',
-              label: '产出软件',
-              value: toolCount,
-              icon: <LayoutGrid size={ICON_SIZE.sm} />,
-            },
-            {
-              key: 'size',
-              label: '总体积',
-              value: formatSize(totalSize),
-              icon: <HardDrive size={ICON_SIZE.sm} />,
-              compact: true,
-            },
-          ]}
-        />
-      )}
+  const visibleKinds: KindCategory[] = ['all', 'code', 'doc', 'image', 'video', 'data']
 
-      <div className="collection-toolbar">
-        <div className="filter-chip-scroll">
-          {KIND_OPTIONS.map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              className={classNames('filter-chip', kind === value && 'filter-chip-active')}
-              onClick={() => setKind(value)}
-              aria-pressed={kind === value}
-            >
-              {label}
-            </button>
-          ))}
+  return (
+    <div className="desk-library-shell">
+      <div className="desk-library-toolbar">
+        <div className="desk-pill-group">
+          {visibleKinds.map((kind) => {
+            const meta = KIND_META[kind]
+            const count = kind === 'all' ? allArtifacts.length : (kindCounts.get(kind) ?? 0)
+            if (kind !== 'all' && count === 0) return null
+            return (
+              <button
+                key={kind}
+                className={classNames('desk-pill-btn', kindFilter === kind && 'active')}
+                onClick={() => setKindFilter(kind)}
+                aria-pressed={kindFilter === kind}
+              >
+                {meta.label} ({count})
+              </button>
+            )
+          })}
         </div>
 
-        <div className="collection-selects">
-          <Select
-            aria-label="筛选项目"
-            value={projectFilter}
-            onChange={(event) => setProjectFilter(event.target.value)}
+        <div className="desk-sort-selector">
+          <ArrowUpDown size={12} />
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as 'mtime' | 'size')}
+            className="desk-select"
+            aria-label="排序方式"
           >
-            <option value="all">全部项目</option>
-            {projects.map((project) => (
-              <option key={project} value={project}>
-                {project}
-              </option>
-            ))}
-          </Select>
-          <Select
-            aria-label="筛选软件"
-            value={toolFilter}
-            onChange={(event) => setToolFilter(event.target.value)}
-          >
-            <option value="all">全部软件</option>
-            {tools.map((tool) => (
-              <option key={tool.name} value={tool.name}>
-                {tool.name}
-              </option>
-            ))}
-          </Select>
-          <div className="segmented-control" aria-label="排序方式">
-            {SORT_OPTIONS.map(([value, label]) => (
-              <button
-                key={value}
-                type="button"
-                className={classNames(sort === value && 'segmented-active')}
-                onClick={() => setSort(value)}
-                aria-pressed={sort === value}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+            <option value="mtime">按改动时间排序</option>
+            <option value="size">按文件体积排序</option>
+          </select>
         </div>
       </div>
 
-      {loading && !data && <SkeletonPage cells={4} rows={6} />}
+      <div className="desk-panel desk-artifact-table-card">
+        <div className="desk-art-table-head">
+          <span className="desk-col-file">文件名 / 相对路径</span>
+          <span>所属项目</span>
+          <span className="desk-col-src">产生源</span>
+          <span>关联会话</span>
+          <span>改动时间</span>
+          <span>大小</span>
+          <span />
+        </div>
 
-      {data && filtered.length === 0 && (
+        <div className="desk-art-table-body">
+          {visibleItems.map((art) => {
+            const meta = KIND_META[art.kind] ?? KIND_META.other
+            const Icon = meta.Icon
+            return (
+              <div key={art.path} className="desk-art-row">
+                <span className="desk-col-file" title={art.path}>
+                  <Icon size={15} className={`desk-art-ico ${meta.tone}`} />
+                  <span className="desk-file-name-meta">
+                    <strong className="desk-fname">{art.name}</strong>
+                    <span className="desk-fpath">
+                      {shortenPath(art.path, art.projectPath || art.project)}
+                    </span>
+                  </span>
+                </span>
+
+                <span className="desk-proj-badge" title={art.projectPath}>
+                  {projectDisplayName(art.projectPath || art.project, allProjectPaths)}
+                </span>
+
+                <span className="desk-col-src">
+                  <span className="desk-src-tag" style={{ borderColor: art.toolColor }}>
+                    <span className="desk-src-dot" style={{ backgroundColor: art.toolColor }} />
+                    <span>{art.toolName}</span>
+                  </span>
+                </span>
+
+                <span className="desk-col-session" title={art.sessionTitle}>
+                  {art.sessionTitle || '（无标题会话）'}
+                </span>
+
+                <span className="desk-col-time">{formatClock(art.mtime)}</span>
+                <span className="desk-col-size">{formatBytes(art.size)}</span>
+
+                <span className="desk-col-action">
+                  <button
+                    onClick={() => void openArtifact(art.path)}
+                    className="desk-art-btn"
+                    title="直接打开此文件"
+                    aria-label={`打开文件 ${art.name}`}
+                  >
+                    <ExternalLink size={12} />
+                  </button>
+                  <button
+                    onClick={() => void revealInFolder(art.path)}
+                    className="desk-art-btn"
+                    title="在文件夹中定位"
+                    aria-label={`在文件夹中定位 ${art.name}`}
+                  >
+                    <FolderOpen size={12} />
+                  </button>
+                </span>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {filteredList.length === 0 && (
         <EmptyState
           title="没有匹配的成果"
-          description="成果是会话时间窗内项目目录里被实际改动的文件。调整筛选条件后重试，或产生新会话后点「重新采集」。"
+          description="调整分类或过滤条件后重试。"
           actions={
-            <Button
+            <button
               onClick={() => {
-                setKind('all')
-                setProjectFilter('all')
-                setToolFilter('all')
+                setKindFilter('all')
                 onClearSearch()
               }}
+              className="desk-btn-secondary"
             >
-              清除筛选与搜索
-            </Button>
+              重置筛选
+            </button>
           }
         />
       )}
 
-      {byDay.map(([day, list]) => (
-        <section className="session-section" key={day}>
-          <div className="section-title-row">
-            <span className="eyebrow">{day === '未知日期' ? day : formatDayLabel(day)}</span>
-            <span className="result-count">{list.length} 个文件</span>
-          </div>
-          <div className="artifact-list">
-            {list.map((row) => {
-              const { Icon, tone } = iconForExt(row.name)
-              const isOpen = openPath === row.path
-              return (
-                <button
-                  key={row.path}
-                  type="button"
-                  className={classNames(
-                    'artifact-row',
-                    'list-item-enter',
-                    isOpen && 'artifact-row-open',
-                  )}
-                  onClick={() => void open(row)}
-                  title={row.path}
-                >
-                  <span className="artifact-row-icon" style={{ color: tone }}>
-                    <Icon size={ICON_SIZE.sm} />
-                  </span>
-                  <span className="artifact-row-main">
-                    <span className="artifact-row-name">{row.name}</span>
-                    <span className="artifact-row-path">{row.shortPath}</span>
-                  </span>
-                  <span className="artifact-row-meta">
-                    <ToolDot color={row.toolColor} name={row.toolName} />
-                    <span title={row.project}>{row.project}</span>
-                    <span>{row.range}</span>
-                    <span>{formatSize(row.size)}</span>
-                  </span>
-                </button>
-              )
-            })}
-          </div>
-        </section>
-      ))}
-
-      {hasMore && <LoadMore noun="文件" remaining={remaining} onClick={loadMore} />}
+      {hasMore && (
+        <div className="desk-load-more-wrap">
+          <button onClick={loadMore} className="desk-btn-ghost">
+            显示更多产出（还有 {remaining} 个文件未展示）
+          </button>
+        </div>
+      )}
     </div>
   )
 }

@@ -1,16 +1,17 @@
 import { useState } from 'react'
+import { ArrowUpRight } from 'lucide-react'
 import { useChronicle } from '../lib/store'
 import { classNames } from '../lib/utils'
-import { ArrowUpRight } from 'lucide-react'
-import { ICON_SIZE } from '../lib/ui'
 import { InstallConfirmDialog, useUpdateActions } from './UpdatePanel'
 
 interface UpdateBadgeProps {
   onNavigate: (view: 'settings') => void
 }
 
-// 常驻更新小框：固定右下角、圆形进度环、悬停显示更新内容。
-// 与设置页共用 useUpdateActions，两处按钮行为与文案保持一致。
+/**
+ * 常驻更新提示条：固定右下角，仅在有可用更新时出现。
+ * 与设置页共用 useUpdateActions，两处按钮行为与文案保持一致。
+ */
 export function UpdateBadge({ onNavigate }: UpdateBadgeProps) {
   const { update, isDesktop } = useChronicle()
   const [hover, setHover] = useState(false)
@@ -23,20 +24,20 @@ export function UpdateBadge({ onNavigate }: UpdateBadgeProps) {
   }
 
   const percent = Math.min(100, Math.max(0, update?.percent ?? 0))
-  const ring = 30
+  const ring = 26
   const circumference = 2 * Math.PI * (ring / 2 - 3)
 
   return (
     <>
       <div
-        className="update-badge-wrap"
+        className="desk-update-float"
         onMouseEnter={() => setHover(true)}
         onMouseLeave={() => setHover(false)}
       >
         {hover && (update?.notes || update?.message) && (
-          <div className="update-pop" role="tooltip">
+          <div className="desk-update-pop" role="tooltip">
             <strong>版本 {actions.version} 更新内容</strong>
-            <div className="update-pop-body">
+            <div className="desk-update-pop-body">
               {update?.notes
                 ? update.notes
                     .split('\n')
@@ -50,9 +51,9 @@ export function UpdateBadge({ onNavigate }: UpdateBadgeProps) {
         <button
           type="button"
           className={classNames(
-            'update-badge',
-            state === 'downloaded' && 'update-badge-ready',
-            actions.installing && 'update-badge-busy',
+            'desk-update-float-btn',
+            state === 'downloaded' && 'is-ready',
+            actions.installing && 'is-busy',
           )}
           aria-label={
             state === 'downloaded'
@@ -65,10 +66,15 @@ export function UpdateBadge({ onNavigate }: UpdateBadgeProps) {
           }}
         >
           {state === 'downloading' && (
-            <svg className="update-ring" viewBox={`0 0 ${ring} ${ring}`} aria-hidden>
-              <circle className="update-ring-track" cx={ring / 2} cy={ring / 2} r={ring / 2 - 3} />
+            <svg className="desk-update-ring" viewBox={`0 0 ${ring} ${ring}`} aria-hidden>
               <circle
-                className="update-ring-bar"
+                className="desk-update-ring-track"
+                cx={ring / 2}
+                cy={ring / 2}
+                r={ring / 2 - 3}
+              />
+              <circle
+                className="desk-update-ring-bar"
                 cx={ring / 2}
                 cy={ring / 2}
                 r={ring / 2 - 3}
@@ -77,8 +83,8 @@ export function UpdateBadge({ onNavigate }: UpdateBadgeProps) {
               />
             </svg>
           )}
-          {state === 'downloaded' && <ArrowUpRight size={ICON_SIZE.sm} />}
-          <span className="update-badge-text">
+          {state === 'downloaded' && <ArrowUpRight size={14} />}
+          <span>
             {state === 'available' && `新版本 v${actions.version} · 后台下载中`}
             {state === 'downloading' && `下载中 ${percent}%`}
             {state === 'downloaded' && `v${actions.version} 已就绪 · 点击安装`}

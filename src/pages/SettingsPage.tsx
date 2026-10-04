@@ -1,42 +1,53 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
-  Bell,
+  ArrowUpCircle,
   Copy,
+  Cpu,
   Download,
-  FolderOpen,
-  HardDrive,
-  Info,
-  LockKeyhole,
-  Maximize2,
+  ExternalLink,
+  Lock,
   Monitor,
-  Moon,
   Palette,
-  Power,
   RefreshCw,
-  ScrollText,
   ShieldCheck,
-  Sun,
-  Wrench,
+  Upload,
 } from 'lucide-react'
 import { useChronicle, type AutoRefreshInterval } from '../lib/store'
-import { saveText } from '../lib/desktop'
+import { openLocalPath, saveText } from '../lib/desktop'
 import { dayKeyOf } from '../lib/format'
 import { APP_ENV, CHANNEL_LABEL } from '../lib/env'
-import { PageHeader } from '../components/PageHeader'
 import { Switch } from '../components/Switch'
-import { Button } from '../components/Button'
-import { Input } from '../components/Field'
+import { UpdatePanel } from '../components/UpdatePanel'
+import { DesktopOnlyPage } from '../components/EmptyState'
 import { classNames } from '../lib/utils'
 import type { ToastMessage } from '../types'
 import type { LucideIcon } from 'lucide-react'
-import { ICON_SIZE } from '../lib/ui'
-import { UpdatePanel } from '../components/UpdatePanel'
 
 interface SettingsPageProps {
   theme: 'light' | 'dark'
   onThemeChange: (theme: 'light' | 'dark') => void
   onToast: (toast: Omit<ToastMessage, 'id'>) => void
 }
+
+type SettingsSection = 'appearance' | 'ingest' | 'desktop' | 'backup' | 'update' | 'diag'
+
+const SECTIONS: Array<{ id: SettingsSection; label: string; icon: LucideIcon }> = [
+  { id: 'appearance', label: '外观与显示', icon: Palette },
+  { id: 'ingest', label: '数据采集', icon: RefreshCw },
+  { id: 'desktop', label: '桌面集成', icon: Monitor },
+  { id: 'backup', label: '安全备份', icon: ShieldCheck },
+  { id: 'update', label: '软件更新', icon: ArrowUpCircle },
+  { id: 'diag', label: '关于与诊断', icon: Cpu },
+]
+
+const AUTO_REFRESH_OPTIONS: Array<[AutoRefreshInterval, string]> = [
+  [60, '1 分钟'],
+  [300, '5 分钟'],
+  [900, '15 分钟'],
+  [0, '手动刷新'],
+]
+
+const ZOOM_OPTIONS = [90, 100, 110, 125]
 
 interface ScanSourceResult {
   id: string
@@ -45,66 +56,46 @@ interface ScanSourceResult {
   lastModified?: string
 }
 
-interface SectionDef {
-  id: string
+/** 密码强度：长度 + 字符种类，够用且不引入额外依赖 */
+function passwordStrength(pw: string): {
+  level: 'weak' | 'fair' | 'good'
+  percent: number
   label: string
-  icon: LucideIcon
+} {
+  if (!pw) return { level: 'weak', percent: 0, label: '未输入' }
+  let score = 0
+  if (pw.length >= 8) score += 1
+  if (pw.length >= 12) score += 1
+  if (/[a-z]/.test(pw) && /[A-Z]/.test(pw)) score += 1
+  if (/\d/.test(pw)) score += 1
+  if (/[^A-Za-z0-9]/.test(pw)) score += 1
+  if (pw.length < 8) return { level: 'weak', percent: 15, label: '过短（至少 8 位）' }
+  if (score <= 2) return { level: 'weak', percent: 35, label: '偏弱' }
+  if (score <= 3) return { level: 'fair', percent: 62, label: '一般' }
+  return { level: 'good', percent: 100, label: '强' }
 }
 
-const SECTIONS: SectionDef[] = [
-  { id: 'appearance', label: '外观', icon: Palette },
-  { id: 'capture', label: '数据采集', icon: RefreshCw },
-  { id: 'storage', label: '数据管理', icon: HardDrive },
-  { id: 'desktop', label: '桌面集成', icon: Monitor },
-  { id: 'update', label: '软件更新', icon: Download },
-  { id: 'privacy', label: '隐私', icon: ShieldCheck },
-  { id: 'diagnostics', label: '诊断', icon: Wrench },
-  { id: 'about', label: '关于', icon: Info },
-]
-
-const AUTO_REFRESH_OPTIONS: Array<[AutoRefreshInterval, string]> = [
-  [60, '1 分钟'],
-  [300, '5 分钟'],
-  [900, '15 分钟'],
-  [0, '手动'],
-]
-
-const THEME_OPTIONS: Array<['light' | 'dark', string]> = [
-  ['light', '浅色'],
-  ['dark', '深色'],
-]
-
-/** 界面缩放档位：覆盖高分屏看不清 / 低分屏想多塞内容两种诉求 */
-const ZOOM_OPTIONS: Array<[number, string]> = [
-  [0.9, '90%'],
-  [1, '100%'],
-  [1.1, '110%'],
-  [1.25, '125%'],
-]
-
+/**
+ * 设置中心：类 macOS 偏好设置的二级导航。
+ * 左侧 6 个固定锚点，右侧渲染标准设置行（图标 + 标题 + 辅助说明 + 右侧控件），
+ * 保证开关、按钮、分段控制器在任意缩放比下基线对齐。
+ */
 export function SettingsPage({ theme, onThemeChange, onToast }: SettingsPageProps) {
   const { data, refresh, isDesktop, settings, updateSettings } = useChronicle()
-  const [runtime, setRuntime] = useState<{
-    version: string
-    platform: string
-    arch: string
-    dataPath: string
-    logPath: string
-    packaged: boolean
-  } | null>(null)
-  const [scanning, setScanning] = useState(false)
-  const [scanResult, setScanResult] = useState<ScanSourceResult[] | null>(null)
-  const [activeSection, setActiveSection] = useState(SECTIONS[0].id)
-  const [zoom, setZoom] = useState(1)
+  const [activeSection, setActiveSection] = useState<SettingsSection>('appearance')
+  const [runtime, setRuntime] = useState<DesktopRuntimeInfo | null>(null)
+  const [zoomPercent, setZoomPercent] = useState(100)
   const [desktopPrefs, setDesktopPrefs] = useState<DesktopPrefs>({
     minimizeToTray: false,
     autoStart: false,
-    notifyOnIngest: true,
+    notifyOnIngest: false,
   })
   const [backupPassword, setBackupPassword] = useState('')
   const [exportingBackup, setExportingBackup] = useState(false)
   const [importingBackup, setImportingBackup] = useState(false)
   const [rescanning, setRescanning] = useState(false)
+  const [scanning, setScanning] = useState(false)
+  const [scanResult, setScanResult] = useState<ScanSourceResult[] | null>(null)
   const [backupSummary, setBackupSummary] = useState<{
     filePath: string
     exportedAt?: string
@@ -113,52 +104,39 @@ export function SettingsPage({ theme, onThemeChange, onToast }: SettingsPageProp
   } | null>(null)
 
   useEffect(() => {
-    if (window.desktopAPI) {
-      void window.desktopAPI.getRuntimeInfo().then((info) => {
-        setRuntime(info)
-        setZoom(info.zoom)
-      })
-      void window.desktopAPI.getDesktopPrefs().then(setDesktopPrefs)
+    if (!window.desktopAPI) return
+    void window.desktopAPI.getRuntimeInfo().then((info) => {
+      setRuntime(info)
+      setZoomPercent(Math.round(info.zoom * 100))
+    })
+    void window.desktopAPI.getDesktopPrefs().then(setDesktopPrefs)
+  }, [])
+
+  const strength = useMemo(() => passwordStrength(backupPassword), [backupPassword])
+
+  async function handleZoomChange(target: number) {
+    setZoomPercent(target)
+    if (!window.desktopAPI) return
+    const result = await window.desktopAPI.setZoom(target / 100)
+    if (!result.ok) {
+      onToast({ tone: 'warning', title: '缩放设置未生效', message: '请稍后重试。' })
     }
-  }, [])
-
-  // 滚动高亮：以页头高度为偏移，判断当前处于哪个分区
-  useEffect(() => {
-    const nodes = SECTIONS.map((section) =>
-      document.getElementById(`settings-${section.id}`),
-    ).filter((node): node is HTMLElement => node !== null)
-    if (!nodes.length || typeof IntersectionObserver === 'undefined') return undefined
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const visible = entries
-          .filter((entry) => entry.isIntersecting)
-          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)
-        if (visible[0]) {
-          setActiveSection(visible[0].target.id.replace('settings-', ''))
-        }
-      },
-      { rootMargin: '-150px 0px -55% 0px', threshold: 0 },
-    )
-    nodes.forEach((node) => observer.observe(node))
-    return () => observer.disconnect()
-  }, [])
-
-  function jumpTo(id: string) {
-    setActiveSection(id)
-    document
-      .getElementById(`settings-${id}`)
-      ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
-  async function exportAllSessions() {
-    if (!data) return
-    const result = await saveText(`AI轨迹备份-${dayKeyOf(Date.now())}.json`, buildBackupContent())
-    onToast({
-      tone: result.ok ? 'success' : 'warning',
-      title: result.ok ? '备份已导出' : '导出未完成',
-      message: result.message ?? '',
-    })
+  async function handlePrefChange(key: keyof DesktopPrefs, value: boolean) {
+    const next = { ...desktopPrefs, [key]: value }
+    setDesktopPrefs(next)
+    if (!window.desktopAPI) {
+      onToast({
+        tone: 'warning',
+        title: '仅桌面版支持桌面集成',
+        message: '浏览器预览环境无法设置托盘、自启与系统通知。',
+      })
+      return
+    }
+    const result = await window.desktopAPI.setDesktopPrefs({ [key]: value })
+    if (result.ok) setDesktopPrefs(result.prefs)
+    onToast({ tone: 'info', title: '配置已保存', message: '桌面集成偏好已立即生效' })
   }
 
   function buildBackupContent(): string {
@@ -174,7 +152,17 @@ export function SettingsPage({ theme, onThemeChange, onToast }: SettingsPageProp
     )
   }
 
-  async function exportEncryptedBackup() {
+  async function handleExportPlain() {
+    if (!data) return
+    const result = await saveText(`AI轨迹备份-${dayKeyOf(Date.now())}.json`, buildBackupContent())
+    onToast({
+      tone: result.ok ? 'success' : 'warning',
+      title: result.ok ? '备份已导出' : '导出未完成',
+      message: result.message ?? '',
+    })
+  }
+
+  async function handleExportEncrypted() {
     if (!window.desktopAPI) {
       onToast({
         tone: 'warning',
@@ -183,8 +171,8 @@ export function SettingsPage({ theme, onThemeChange, onToast }: SettingsPageProp
       })
       return
     }
-    if (backupPassword.length < 6) {
-      onToast({ tone: 'warning', title: '密码太短', message: '备份密码至少 6 位。' })
+    if (backupPassword.length < 8) {
+      onToast({ tone: 'warning', title: '密码强度不足', message: '加密备份密码长度不得少于 8 位' })
       return
     }
     setExportingBackup(true)
@@ -192,29 +180,27 @@ export function SettingsPage({ theme, onThemeChange, onToast }: SettingsPageProp
       const result = await window.desktopAPI.exportEncryptedBackup({
         content: buildBackupContent(),
         password: backupPassword,
-        defaultName: `AI轨迹加密备份-${dayKeyOf(Date.now())}.json`,
+        defaultName: `AI轨迹加密备份-${dayKeyOf(Date.now())}.chronicle`,
       })
       if (result.canceled) return
-      onToast({
-        tone: result.ok ? 'success' : 'warning',
-        title: result.ok ? '加密备份已导出' : '导出未完成',
-        message: result.ok
-          ? '文件已用 scrypt + AES-256-GCM 加密，需要密码才能打开。'
-          : (result.message ?? ''),
-      })
+      onToast(
+        result.ok
+          ? {
+              tone: 'success',
+              title: '备份成功',
+              message: `加密归档已写入：${result.filePath ?? ''}`,
+            }
+          : { tone: 'warning', title: '导出未完成', message: result.message ?? '' },
+      )
     } finally {
       setExportingBackup(false)
     }
   }
 
-  async function openEncryptedBackup() {
+  async function handleRestoreBackup() {
     if (!window.desktopAPI) return
     if (!backupPassword) {
-      onToast({
-        tone: 'warning',
-        title: '请先输入密码',
-        message: '打开加密备份需要输入导出时设置的密码。',
-      })
+      onToast({ tone: 'warning', title: '需要密码', message: '请输入对应的解密密码后再打开归档' })
       return
     }
     setImportingBackup(true)
@@ -224,9 +210,9 @@ export function SettingsPage({ theme, onThemeChange, onToast }: SettingsPageProp
       if (!result.ok || !result.content) {
         setBackupSummary(null)
         onToast({
-          tone: 'warning',
+          tone: 'danger',
           title: '解密失败',
-          message: result.message ?? '密码不正确，或文件已损坏。',
+          message: result.message || '密码错误或文件已损坏',
         })
         return
       }
@@ -244,13 +230,13 @@ export function SettingsPage({ theme, onThemeChange, onToast }: SettingsPageProp
         })
         onToast({
           tone: 'success',
-          title: '备份解密成功',
-          message: `包含 ${parsed.sessions?.length ?? 0} 个会话、${parsed.sources?.length ?? 0} 个来源。`,
+          title: '解密成功',
+          message: `备份文件结构校验通过：${parsed.sessions?.length ?? 0} 个会话、${parsed.sources?.length ?? 0} 个来源。`,
         })
       } catch {
         setBackupSummary(null)
         onToast({
-          tone: 'warning',
+          tone: 'danger',
           title: '备份内容无法解析',
           message: '解密成功，但内容不是预期的备份结构。',
         })
@@ -260,76 +246,18 @@ export function SettingsPage({ theme, onThemeChange, onToast }: SettingsPageProp
     }
   }
 
-  async function openDataFolder() {
-    if (!runtime) return
-    const result = await window.desktopAPI?.openPath(runtime.dataPath)
-    if (!result?.ok) {
-      onToast({
-        tone: 'warning',
-        title: '无法打开数据目录',
-        message: result?.message ?? '请确认目录是否存在。',
-      })
-    }
-  }
-
-  async function openLogFolder() {
-    if (!runtime) return
-    const result = await window.desktopAPI?.openPath(runtime.logPath)
-    if (!result?.ok) {
-      onToast({
-        tone: 'info',
-        title: '日志目录尚不存在',
-        message: '应用出现异常后才会写入日志，目前还没有日志文件。',
-      })
-    }
-  }
-
-  async function changeZoom(level: number) {
-    if (!window.desktopAPI) {
-      onToast({
-        tone: 'warning',
-        title: '仅桌面版支持界面缩放',
-        message: '浏览器预览环境无法调整窗口缩放。',
-      })
-      return
-    }
-    const result = await window.desktopAPI.setZoom(level)
-    if (!result.ok) {
-      onToast({ tone: 'warning', title: '缩放设置未生效', message: '请稍后重试。' })
-      return
-    }
-    setZoom(result.zoom)
-  }
-
   async function runRescan() {
     setRescanning(true)
     try {
       const ok = await refresh(true)
       if (!ok) return
-      onToast({
-        tone: 'success',
-        title: '已重新采集',
-        message: '采集结果已更新；异常来源可在接入中心查看。',
-      })
+      onToast({ tone: 'success', title: '已重新采集', message: '采集结果已更新。' })
     } finally {
       setRescanning(false)
     }
   }
 
-  async function updateDesktopPrefs(patch: Partial<DesktopPrefs>) {
-    if (!window.desktopAPI) {
-      onToast({
-        tone: 'warning',
-        title: '仅桌面版支持桌面集成',
-        message: '浏览器预览环境无法设置托盘、自启与系统通知。',
-      })
-      return
-    }
-    const result = await window.desktopAPI.setDesktopPrefs(patch)
-    if (result.ok) setDesktopPrefs(result.prefs)
-  }
-
-  async function scanSources() {
+  async function runScan() {
     if (!window.desktopAPI) return
     setScanning(true)
     try {
@@ -337,8 +265,8 @@ export function SettingsPage({ theme, onThemeChange, onToast }: SettingsPageProp
       setScanResult(result.sources)
       onToast({
         tone: 'success',
-        title: '来源诊断完成',
-        message: `已检查 ${result.sources.length} 个接入来源。`,
+        title: '数据源校验完成',
+        message: `已检查 ${result.sources.length} 个接入目录。`,
       })
     } finally {
       setScanning(false)
@@ -346,461 +274,361 @@ export function SettingsPage({ theme, onThemeChange, onToast }: SettingsPageProp
   }
 
   async function copyDiagnostics() {
-    const text = JSON.stringify(
-      {
-        runtime,
-        env: APP_ENV,
-        cacheStats: data?.cacheStats,
-        sessions: data?.sessions.length,
-        sources: data?.sources.map((source) => ({
-          id: source.id,
-          name: source.name,
-          status: source.status,
-          sessionCount: source.sessionCount,
-        })),
-        settings,
-      },
-      null,
-      2,
-    )
+    const payload = {
+      runtime: runtime ?? APP_ENV,
+      desktopPrefs,
+      settings,
+      cacheStats: data?.cacheStats,
+      sessionCount: data?.sessions.length ?? 0,
+      sources: (data?.sources ?? []).map((s) => ({
+        id: s.id,
+        name: s.name,
+        status: s.status,
+        protocol: s.protocol,
+        sessionCount: s.sessionCount,
+      })),
+    }
     try {
-      await navigator.clipboard.writeText(text)
+      await navigator.clipboard.writeText(JSON.stringify(payload, null, 2))
       onToast({
         tone: 'success',
-        title: '诊断信息已复制',
-        message: '可粘贴到反馈或本地记录中。',
+        title: '已复制到剪贴板',
+        message: '完整诊断快照已格式化就绪。',
       })
     } catch {
-      onToast({
-        tone: 'warning',
-        title: '复制失败',
-        message: '浏览器或系统拒绝了剪贴板访问。',
-      })
+      onToast({ tone: 'danger', title: '复制失败', message: '浏览器或系统拒绝了剪贴板访问。' })
     }
   }
 
+  if (!isDesktop) {
+    return (
+      <DesktopOnlyPage
+        title="设置中心"
+        description="设置项依赖本机文件系统与桌面集成能力，浏览器预览环境无法完整展示。"
+      />
+    )
+  }
+
   return (
-    <div className="page">
-      <PageHeader kicker="本地优先 · 全部数据保存在本机 · 每个设置项即时生效" title="设置中心" />
+    <div className="desk-settings-shell">
+      <nav className="desk-settings-nav" aria-label="设置导航">
+        {SECTIONS.map((section) => {
+          const Icon = section.icon
+          return (
+            <button
+              key={section.id}
+              className={classNames('desk-set-tab', activeSection === section.id && 'active')}
+              onClick={() => setActiveSection(section.id)}
+              aria-current={activeSection === section.id ? 'true' : undefined}
+            >
+              <Icon size={15} />
+              <span>{section.label}</span>
+            </button>
+          )
+        })}
+      </nav>
 
-      <div className="settings-layout">
-        <nav className="settings-nav" aria-label="设置分区">
-          {SECTIONS.map((section) => {
-            const Icon = section.icon
-            const active = activeSection === section.id
-            return (
-              <button
-                key={section.id}
-                type="button"
-                className={classNames(active && 'settings-nav-active')}
-                onClick={() => jumpTo(section.id)}
-                aria-current={active ? 'true' : undefined}
-              >
-                <Icon size={ICON_SIZE.sm} />
-                {section.label}
-              </button>
-            )
-          })}
-        </nav>
+      <section className="desk-settings-content">
+        {/* ---------- 外观与显示 ---------- */}
+        {activeSection === 'appearance' && (
+          <div className="desk-set-card desk-enter">
+            <h3 className="desk-set-title">外观与界面缩放</h3>
 
-        <div className="settings-content">
-          <section className="settings-block" id="settings-appearance">
-            <header>
-              <span className="settings-block-icon">
-                <Palette size={ICON_SIZE.sm} />
-              </span>
-              <div>
-                <h2>外观</h2>
-                <p>主题切换立即生效，并会在下次启动时保留。</p>
-              </div>
-            </header>
-            <div className="settings-option">
-              <span className="setting-icon">
-                {theme === 'light' ? <Sun size={ICON_SIZE.sm} /> : <Moon size={ICON_SIZE.sm} />}
-              </span>
-              <div className="setting-copy">
+            <div className="desk-set-row">
+              <span className="desk-set-copy">
                 <strong>主题模式</strong>
-                <small>浅色 / 深色两套中性配色，窗口镶边会同步跟随。</small>
-              </div>
-              <div className="segmented-control" aria-label="主题模式">
-                {THEME_OPTIONS.map(([value, label]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    className={classNames(theme === value && 'segmented-active')}
-                    onClick={() => onThemeChange(value)}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="settings-option">
-              <span className="setting-icon">
-                <Maximize2 size={ICON_SIZE.sm} />
+                <small>纯血黑曜深色档与暖灰浅色档，切换时窗口镶边实时联动</small>
               </span>
-              <div className="setting-copy">
-                <strong>界面缩放</strong>
-                <small>高分屏看不清或想一屏显示更多内容时可调整，设置会保留到下次启动。</small>
-              </div>
-              <div className="segmented-control" aria-label="界面缩放">
-                {ZOOM_OPTIONS.map(([value, label]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    className={classNames(Math.abs(zoom - value) < 0.001 && 'segmented-active')}
-                    onClick={() => void changeZoom(value)}
-                  >
-                    {label}
-                  </button>
-                ))}
+              <div className="desk-pill-group">
+                <button
+                  className={classNames('desk-pill-btn', theme === 'dark' && 'active')}
+                  onClick={() => onThemeChange('dark')}
+                  aria-pressed={theme === 'dark'}
+                >
+                  黑曜深色
+                </button>
+                <button
+                  className={classNames('desk-pill-btn', theme === 'light' && 'active')}
+                  onClick={() => onThemeChange('light')}
+                  aria-pressed={theme === 'light'}
+                >
+                  暖灰浅色
+                </button>
               </div>
             </div>
-          </section>
 
-          <section className="settings-block" id="settings-capture">
-            <header>
-              <span className="settings-block-icon">
-                <RefreshCw size={ICON_SIZE.sm} />
+            <div className="desk-set-row">
+              <span className="desk-set-copy">
+                <strong>高分屏界面缩放</strong>
+                <small>调整底层 Chromium WebContents 缩放系数，保持高密度排版</small>
               </span>
-              <div>
-                <h2>数据采集</h2>
-                <p>采集层带文件级缓存，未变化的日志直接复用，刷新成本很低。</p>
+              <div className="desk-pill-group">
+                {ZOOM_OPTIONS.map((scale) => (
+                  <button
+                    key={scale}
+                    className={classNames('desk-pill-btn', zoomPercent === scale && 'active')}
+                    onClick={() => void handleZoomChange(scale)}
+                    aria-pressed={zoomPercent === scale}
+                  >
+                    {scale}%
+                  </button>
+                ))}
               </div>
-            </header>
-            <div className="settings-option">
-              <span className="setting-icon">
-                <RefreshCw size={ICON_SIZE.sm} />
+            </div>
+          </div>
+        )}
+
+        {/* ---------- 数据采集 ---------- */}
+        {activeSection === 'ingest' && (
+          <div className="desk-set-card desk-enter">
+            <h3 className="desk-set-title">数据采集策略</h3>
+
+            <div className="desk-set-row">
+              <span className="desk-set-copy">
+                <strong>自动静默轮询</strong>
+                <small>后台按文件元数据 mtime 增量探活，无文件变动时零开销</small>
               </span>
-              <div className="setting-copy">
-                <strong>自动刷新频率</strong>
-                <small>间隔越小越实时；窗口重新聚焦时也会静默刷新。</small>
-              </div>
-              <div className="segmented-control" aria-label="自动刷新频率">
+              <div className="desk-pill-group">
                 {AUTO_REFRESH_OPTIONS.map(([value, label]) => (
                   <button
                     key={value}
-                    type="button"
                     className={classNames(
-                      settings.autoRefreshSeconds === value && 'segmented-active',
+                      'desk-pill-btn',
+                      settings.autoRefreshSeconds === value && 'active',
                     )}
                     onClick={() => updateSettings({ autoRefreshSeconds: value })}
+                    aria-pressed={settings.autoRefreshSeconds === value}
                   >
                     {label}
                   </button>
                 ))}
               </div>
             </div>
+
             <button
-              className="settings-row"
-              type="button"
+              className="desk-set-row is-clickable"
               onClick={() => void runRescan()}
               disabled={rescanning}
-              aria-busy={rescanning || undefined}
+              aria-busy={rescanning}
             >
-              <span className="setting-icon">
-                {rescanning ? <span className="spinner" /> : <RefreshCw size={ICON_SIZE.sm} />}
+              <span className="desk-set-copy">
+                <strong>{rescanning ? '正在采集…' : '立即重新采集'}</strong>
+                <small>清除会话缓存并重新扫描全部接入来源（约 3~15 秒，有阶段进度）</small>
               </span>
-              <span className="setting-copy">
-                <strong>立即重新采集</strong>
-                <small>清除会话缓存并重新扫描全部接入来源（约 10–20 秒）。</small>
-              </span>
-              <span className="setting-value">
+              <span className="desk-meta-badge">
                 {rescanning ? '采集中' : data ? `${data.sessions.length} 会话` : '—'}
               </span>
             </button>
-          </section>
+          </div>
+        )}
 
-          <section className="settings-block" id="settings-storage">
-            <header>
-              <span className="settings-block-icon">
-                <HardDrive size={ICON_SIZE.sm} />
+        {/* ---------- 桌面集成 ---------- */}
+        {activeSection === 'desktop' && (
+          <div className="desk-set-card desk-enter">
+            <h3 className="desk-set-title">操作系统级集成</h3>
+
+            <div className="desk-set-row">
+              <span className="desk-set-copy">
+                <strong>关闭时最小化到托盘</strong>
+                <small>点击窗口关闭按钮时不终止应用，继续保持后台低功耗监听</small>
               </span>
-              <div>
-                <h2>数据管理</h2>
-                <p>导出当前会话与接入状态，或直接查看本机数据目录。</p>
+              <Switch
+                label="最小化到托盘"
+                checked={desktopPrefs.minimizeToTray}
+                onChange={(c) => void handlePrefChange('minimizeToTray', c)}
+              />
+            </div>
+
+            <div className="desk-set-row">
+              <span className="desk-set-copy">
+                <strong>开机自动启动</strong>
+                <small>随系统自启时将静默进入托盘（仅安装版生效）</small>
+              </span>
+              <Switch
+                label="开机启动"
+                checked={desktopPrefs.autoStart}
+                onChange={(c) => void handlePrefChange('autoStart', c)}
+              />
+            </div>
+
+            <div className="desk-set-row">
+              <span className="desk-set-copy">
+                <strong>采集完成系统通知</strong>
+                <small>仅在窗口未处于前台活动状态时发送桌面通知，避免干扰工作</small>
+              </span>
+              <Switch
+                label="系统通知"
+                checked={desktopPrefs.notifyOnIngest}
+                onChange={(c) => void handlePrefChange('notifyOnIngest', c)}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* ---------- 安全备份 ---------- */}
+        {activeSection === 'backup' && (
+          <div className="desk-set-card desk-enter">
+            <h3 className="desk-set-title">安全加密与本地备份</h3>
+            <p className="desk-source-detail">
+              采用 scrypt 派生密钥与 AES-256-GCM 认证加密信封，可安全存放于非受信任介质中。
+              会话内容、项目路径与产出文件全部留在本机。
+            </p>
+
+            <div className="desk-backup-form">
+              <div className="desk-field-input-wrap">
+                <Lock size={13} className="desk-field-ico" />
+                <input
+                  type="password"
+                  placeholder="请输入用于备份加密 / 解密的密码（至少 8 位）"
+                  aria-label="备份密码"
+                  autoComplete="new-password"
+                  value={backupPassword}
+                  onChange={(e) => setBackupPassword(e.target.value)}
+                  className="desk-field-input"
+                />
               </div>
-            </header>
-            <button className="settings-row" type="button" onClick={() => void exportAllSessions()}>
-              <span className="setting-icon">
-                <Download size={ICON_SIZE.sm} />
-              </span>
-              <span className="setting-copy">
-                <strong>导出完整备份</strong>
-                <small>导出当前会话、接入状态和缓存统计为 JSON 文件。</small>
-              </span>
-              <span className="setting-value">{data ? 'JSON' : '—'}</span>
-            </button>
-            <button
-              className="settings-row"
-              type="button"
-              onClick={() => void openDataFolder()}
-              disabled={!runtime}
-            >
-              <span className="setting-icon">
-                <FolderOpen size={ICON_SIZE.sm} />
-              </span>
-              <span className="setting-copy">
-                <strong>打开数据目录</strong>
-                <small>在资源管理器中查看应用数据文件。</small>
-              </span>
-              <span className="setting-value">{runtime ? '打开' : '—'}</span>
-            </button>
-            <div className="settings-subblock">
-              <div className="backup-crypto">
-                <div className="backup-crypto-head">
-                  <span className="setting-icon">
-                    <LockKeyhole size={ICON_SIZE.sm} />
-                  </span>
-                  <div className="setting-copy">
-                    <strong>加密备份</strong>
-                    <small>
-                      用密码加密导出（scrypt 派生密钥 +
-                      AES-256-GCM），换台电脑也能用同一密码解密查看。
-                    </small>
-                  </div>
-                </div>
-                <div className="backup-crypto-body">
-                  <Input
-                    type="password"
-                    className="backup-password"
-                    value={backupPassword}
-                    onChange={(event) => setBackupPassword(event.target.value)}
-                    placeholder="备份密码（至少 6 位）"
-                    aria-label="备份密码"
-                    autoComplete="new-password"
-                    invalid={backupPassword.length > 0 && backupPassword.length < 6}
+
+              <div className="desk-password-meter">
+                <span>密码强度</span>
+                <span className="desk-password-meter-bar">
+                  <span
+                    className="desk-password-meter-fill"
+                    data-level={strength.level}
+                    style={{ width: `${strength.percent}%` }}
                   />
-                  <Button
-                    variant="secondary"
-                    loading={exportingBackup}
-                    onClick={() => void exportEncryptedBackup()}
-                  >
-                    导出加密备份
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    loading={importingBackup}
-                    onClick={() => void openEncryptedBackup()}
-                  >
-                    打开加密备份
-                  </Button>
+                </span>
+                <span>{strength.label}</span>
+              </div>
+
+              <div className="desk-backup-actions">
+                <button
+                  onClick={() => void handleExportEncrypted()}
+                  disabled={exportingBackup}
+                  className="desk-btn-primary"
+                >
+                  <Download size={13} />
+                  <span>{exportingBackup ? '加密中…' : '导出加密备份'}</span>
+                </button>
+                <button
+                  onClick={() => void handleRestoreBackup()}
+                  disabled={importingBackup}
+                  className="desk-btn-secondary"
+                >
+                  <Upload size={13} />
+                  <span>{importingBackup ? '校验中…' : '打开并校验备份'}</span>
+                </button>
+                <button onClick={() => void handleExportPlain()} className="desk-btn-ghost">
+                  <Download size={13} />
+                  <span>导出明文 JSON</span>
+                </button>
+              </div>
+
+              {backupSummary && (
+                <div className="desk-backup-result">
+                  <strong>
+                    校验通过：{backupSummary.sessions} 个会话 · {backupSummary.sources} 个来源
+                  </strong>
+                  {backupSummary.exportedAt && (
+                    <span>导出于 {new Date(backupSummary.exportedAt).toLocaleString('zh-CN')}</span>
+                  )}
+                  {backupSummary.filePath && <code>{backupSummary.filePath}</code>}
                 </div>
-                {backupSummary && (
-                  <div className="backup-summary">
-                    <strong>已解密：{backupSummary.sessions} 个会话</strong>
-                    <small>
-                      来源 {backupSummary.sources} 个
-                      {backupSummary.exportedAt
-                        ? ` · 导出于 ${new Date(backupSummary.exportedAt).toLocaleString('zh-CN')}`
-                        : ''}
-                    </small>
-                    {backupSummary.filePath && (
-                      <small className="setting-path">{backupSummary.filePath}</small>
-                    )}
-                  </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ---------- 软件更新 ---------- */}
+        {activeSection === 'update' && (
+          <div className="desk-set-card desk-enter">
+            <h3 className="desk-set-title">软件版本更新</h3>
+            <UpdatePanel onToast={onToast} />
+          </div>
+        )}
+
+        {/* ---------- 关于与诊断 ---------- */}
+        {activeSection === 'diag' && (
+          <div className="desk-set-card desk-enter">
+            <h3 className="desk-set-title">环境诊断与运行时详情</h3>
+
+            <div className="desk-diag-grid">
+              <div className="desk-diag-item">
+                <small>平台架构</small>
+                <strong>
+                  {runtime
+                    ? `${runtime.platform}-${runtime.arch}`
+                    : `${navigator.platform}-browser`}
+                </strong>
+              </div>
+              <div className="desk-diag-item">
+                <small>客户端版本</small>
+                <strong>
+                  v{runtime?.version ?? '0.0.0'} · {CHANNEL_LABEL[APP_ENV.channel]}
+                </strong>
+              </div>
+              <div className="desk-diag-item">
+                <small>数据目录</small>
+                {runtime ? (
+                  <button
+                    className="desk-diag-link"
+                    onClick={() => void openLocalPath(runtime.dataPath)}
+                  >
+                    打开 Local 目录 <ExternalLink size={10} />
+                  </button>
+                ) : (
+                  <span>读取中…</span>
+                )}
+              </div>
+              <div className="desk-diag-item">
+                <small>错误日志</small>
+                {runtime ? (
+                  <button
+                    className="desk-diag-link"
+                    onClick={() => void openLocalPath(runtime.logPath)}
+                  >
+                    打开 Logs 目录 <ExternalLink size={10} />
+                  </button>
+                ) : (
+                  <span>读取中…</span>
                 )}
               </div>
             </div>
-          </section>
 
-          <section className="settings-block" id="settings-desktop">
-            <header>
-              <span className="settings-block-icon">
-                <Monitor size={ICON_SIZE.sm} />
-              </span>
-              <div>
-                <h2>桌面集成</h2>
-                <p>托盘、开机自启与系统通知。默认全部关闭，保持常规桌面软件的行为。</p>
-              </div>
-            </header>
-            <div className="settings-row">
-              <span className="setting-icon">
-                <Monitor size={ICON_SIZE.sm} />
-              </span>
-              <span className="setting-copy">
-                <strong>关闭窗口时最小化到托盘</strong>
-                <small>开启后点关闭只是隐藏窗口，应用继续在托盘常驻；退出请用托盘菜单。</small>
-              </span>
-              <Switch
-                label="关闭窗口时最小化到托盘"
-                checked={desktopPrefs.minimizeToTray}
-                disabled={!isDesktop}
-                onChange={(value) => void updateDesktopPrefs({ minimizeToTray: value })}
-              />
+            <div className="desk-set-actions-right">
+              <button
+                onClick={() => void runScan()}
+                disabled={scanning}
+                className="desk-btn-secondary"
+              >
+                <RefreshCw size={13} className={scanning ? 'desk-spinning' : ''} />
+                <span>{scanning ? '校验中…' : '校验接入来源'}</span>
+              </button>
+              <button onClick={() => void copyDiagnostics()} className="desk-btn-primary">
+                <Copy size={13} />
+                <span>复制完整诊断快照</span>
+              </button>
             </div>
-            <div className="settings-row">
-              <span className="setting-icon">
-                <Power size={ICON_SIZE.sm} />
-              </span>
-              <span className="setting-copy">
-                <strong>开机自动启动</strong>
-                <small>仅安装版生效；启动后默认隐藏到托盘，不打断你的开机流程。</small>
-              </span>
-              <Switch
-                label="开机自动启动"
-                checked={desktopPrefs.autoStart}
-                disabled={!isDesktop}
-                onChange={(value) => void updateDesktopPrefs({ autoStart: value })}
-              />
-            </div>
-            <div className="settings-row">
-              <span className="setting-icon">
-                <Bell size={ICON_SIZE.sm} />
-              </span>
-              <span className="setting-copy">
-                <strong>采集完成后发送系统通知</strong>
-                <small>仅当窗口不在前台时提醒，避免打扰正在看的你。</small>
-              </span>
-              <Switch
-                label="采集完成后发送系统通知"
-                checked={desktopPrefs.notifyOnIngest}
-                disabled={!isDesktop}
-                onChange={(value) => void updateDesktopPrefs({ notifyOnIngest: value })}
-              />
-            </div>
-          </section>
-
-          <section className="settings-block" id="settings-update">
-            <header>
-              <span className="settings-block-icon">
-                <Download size={ICON_SIZE.sm} />
-              </span>
-              <div>
-                <h2>软件更新</h2>
-                <p>自动测速 GitHub 直连与镜像，按最快通道下载。</p>
-              </div>
-            </header>
-            <div className="settings-subblock">
-              <UpdatePanel onToast={onToast} />
-            </div>
-          </section>
-
-          <section className="settings-block" id="settings-privacy">
-            <header>
-              <span className="settings-block-icon">
-                <ShieldCheck size={ICON_SIZE.sm} />
-              </span>
-              <div>
-                <h2>隐私</h2>
-                <p>日志读取为只读操作，软件不会上传任何会话内容。</p>
-              </div>
-            </header>
-            <div className="settings-row static">
-              <span className="setting-icon">
-                <ShieldCheck size={ICON_SIZE.sm} />
-              </span>
-              <span className="setting-copy">
-                <strong>本地优先</strong>
-                <small>
-                  会话内容、项目路径和产出文件都在本机解析与保存；软件不会上传会话内容。
-                </small>
-              </span>
-            </div>
-          </section>
-
-          <section className="settings-block" id="settings-diagnostics">
-            <header>
-              <span className="settings-block-icon">
-                <Wrench size={ICON_SIZE.sm} />
-              </span>
-              <div>
-                <h2>诊断</h2>
-                <p>逐个检查接入来源目录是否存在，以及今日是否有日志写入。</p>
-              </div>
-            </header>
-            <button
-              className="settings-row"
-              type="button"
-              onClick={() => void scanSources()}
-              disabled={scanning}
-            >
-              <span className="setting-icon">
-                <RefreshCw size={ICON_SIZE.sm} className={scanning ? 'spin' : undefined} />
-              </span>
-              <span className="setting-copy">
-                <strong>诊断接入来源</strong>
-                <small>检查目录可读性与今日日志写入情况。</small>
-              </span>
-              <span className="setting-value">{scanning ? '检查中' : '开始'}</span>
-            </button>
-            <button className="settings-row" type="button" onClick={() => void copyDiagnostics()}>
-              <span className="setting-icon">
-                <Copy size={ICON_SIZE.sm} />
-              </span>
-              <span className="setting-copy">
-                <strong>复制诊断信息</strong>
-                <small>复制运行环境、缓存统计和接入状态，便于排查问题。</small>
-              </span>
-              <span className="setting-value">复制</span>
-            </button>
-            <button
-              className="settings-row"
-              type="button"
-              onClick={() => void openLogFolder()}
-              disabled={!runtime}
-            >
-              <span className="setting-icon">
-                <ScrollText size={ICON_SIZE.sm} />
-              </span>
-              <span className="setting-copy">
-                <strong>打开日志目录</strong>
-                <small>界面异常与主进程错误会记录在这里，便于定位问题。</small>
-              </span>
-              <span className="setting-value">{runtime ? '打开' : '—'}</span>
-            </button>
 
             {scanResult && (
-              <div className="settings-subblock">
-                <div className="scan-result-list">
-                  {scanResult.map((source) => {
-                    const name =
-                      data?.sources.find((item) => item.id === source.id)?.name ?? source.id
-                    return (
-                      <div className="scan-result-row" key={source.id}>
-                        <strong>{name}</strong>
-                        <span>{source.exists ? '目录存在' : '目录不存在'}</span>
-                        <span>今日 {source.filesToday} 个文件</span>
-                        {source.lastModified && <span>{source.lastModified}</span>}
-                      </div>
-                    )
-                  })}
-                </div>
+              <div className="desk-scan-list">
+                {scanResult.map((item) => {
+                  const meta = data?.sources.find(
+                    (s) => `source-${s.id}` === item.id || s.id === item.id,
+                  )
+                  return (
+                    <div className="desk-scan-row" key={item.id}>
+                      <strong>{meta?.name ?? item.id}</strong>
+                      <span>{item.exists ? '目录存在' : '目录不存在'}</span>
+                      <span>今日 {item.filesToday} 个文件</span>
+                      {item.lastModified && <span>{item.lastModified}</span>}
+                    </div>
+                  )
+                })}
               </div>
             )}
-          </section>
-
-          <section className="settings-block" id="settings-about">
-            <header>
-              <span className="settings-block-icon">
-                <Info size={ICON_SIZE.sm} />
-              </span>
-              <div>
-                <h2>关于</h2>
-                <p>运行环境与数据存放位置。</p>
-              </div>
-            </header>
-            <div className="settings-row static">
-              <span className="setting-icon">
-                <Info size={ICON_SIZE.sm} />
-              </span>
-              <span className="setting-copy">
-                <strong>运行环境</strong>
-                <small>
-                  {runtime
-                    ? `v${runtime.version} · ${runtime.platform} ${runtime.arch} · ${
-                        runtime.packaged ? '安装版' : '开发模式'
-                      } · ${CHANNEL_LABEL[APP_ENV.channel]}`
-                    : isDesktop
-                      ? '读取中…'
-                      : '浏览器预览环境'}
-                </small>
-                {runtime && <small className="setting-path">{runtime.dataPath}</small>}
-              </span>
-            </div>
-          </section>
-        </div>
-      </div>
+          </div>
+        )}
+      </section>
     </div>
   )
 }

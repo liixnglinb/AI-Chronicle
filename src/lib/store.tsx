@@ -42,6 +42,8 @@ interface ChronicleContextValue {
   settings: ChronicleSettings
   updateSettings: (settings: Partial<ChronicleSettings>) => void
   refresh: (force?: boolean) => Promise<boolean>
+  /** 当前采集阶段：全量采集 3~15 秒，需要阶段感知而不是一个孤零零的转圈 */
+  progress: IngestProgress | null
   update: {
     state: string
     version?: string
@@ -60,6 +62,7 @@ export function ChronicleProvider({ children }: { children: ReactNode }) {
   const [data, setData] = useState<ChronicleData | null>(null)
   const [loading, setLoading] = useState(() => !!window.desktopAPI)
   const [error, setError] = useState<string | null>(null)
+  const [progress, setProgress] = useState<IngestProgress | null>(null)
   const [update, setUpdate] = useState<ChronicleContextValue['update']>(null)
   const [settings, setSettings] = useState<ChronicleSettings>(loadSettings)
   const isDesktop = !!window.desktopAPI
@@ -124,6 +127,14 @@ export function ChronicleProvider({ children }: { children: ReactNode }) {
     }
   }, [isDesktop, load, settings.autoRefreshSeconds])
 
+  // 采集阶段：主进程逐源推送，用于渲染阶段感知与单源故障定位
+  useEffect(() => {
+    if (!window.desktopAPI?.onIngestProgress) return undefined
+    return window.desktopAPI.onIngestProgress((next) => {
+      setProgress(next)
+    })
+  }, [])
+
   // 更新状态：主进程事件 → 上下文（常驻更新框 / 设置页共用）
   useEffect(() => {
     if (!window.desktopAPI) return undefined
@@ -150,9 +161,10 @@ export function ChronicleProvider({ children }: { children: ReactNode }) {
       settings,
       updateSettings,
       refresh: load,
+      progress,
       update,
     }),
-    [data, loading, error, isDesktop, settings, updateSettings, load, update],
+    [data, loading, error, isDesktop, settings, updateSettings, load, progress, update],
   )
 
   return <ChronicleContext.Provider value={value}>{children}</ChronicleContext.Provider>

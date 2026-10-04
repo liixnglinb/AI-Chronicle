@@ -1,7 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
 import { Copy, RefreshCw, TriangleAlert } from 'lucide-react'
 import { reportError } from '../lib/errors'
-import { ICON_SIZE } from '../lib/ui'
 
 interface ErrorBoundaryProps {
   children: ReactNode
@@ -15,7 +14,7 @@ interface ErrorBoundaryState {
 
 /**
  * 渲染异常兜底。任何页面组件抛错都会被这里接住，
- * 展示可恢复的界面而不是整页白屏。
+ * 展示可恢复的界面而不是整页白屏；错误详情会上报到本机日志。
  */
 export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   state: ErrorBoundaryState = { error: null, detail: '', copied: false }
@@ -53,25 +52,25 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     if (!error) return this.props.children
 
     return (
-      <div className="error-boundary" role="alert">
-        <div className="error-boundary-card">
-          <span className="error-boundary-icon">
-            <TriangleAlert size={ICON_SIZE.lg} />
+      <div className="desk-error-boundary" role="alert">
+        <div className="desk-error-card">
+          <span className="desk-error-icon">
+            <TriangleAlert size={20} />
           </span>
           <h1>界面出现异常</h1>
           <p>错误已被拦截，本机数据没有受到影响。可以重新加载界面，或复制错误详情用于排查。</p>
-          <pre className="error-boundary-detail">{detail || error.message}</pre>
-          <div className="error-boundary-actions">
-            <button className="button button-primary" type="button" onClick={this.handleReload}>
-              <RefreshCw size={ICON_SIZE.sm} />
+          <pre className="desk-error-detail">{detail || error.message}</pre>
+          <div className="desk-error-actions">
+            <button className="desk-btn-primary" type="button" onClick={this.handleReload}>
+              <RefreshCw size={14} />
               重新加载
             </button>
             <button
-              className="button button-secondary"
+              className="desk-btn-secondary"
               type="button"
               onClick={() => void this.handleCopy()}
             >
-              <Copy size={ICON_SIZE.sm} />
+              <Copy size={14} />
               {copied ? '已复制' : '复制错误详情'}
             </button>
           </div>

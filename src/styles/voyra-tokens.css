@@ -1,0 +1,261 @@
+/*
+ * AI 轨迹 · 观测台设计令牌（Instrument Desk Tokens）
+ * ------------------------------------------------------------------
+ * 定位：Mac / Linear 风格的本土观测台。安静克制 + 机械工整。
+ * 规则：
+ *   1. 颜色只允许在本文件出现字面量，其他 CSS 一律引用 var(--vr-*)。
+ *   2. 深浅两档共用同一组变量名，切换主题只换值不换结构。
+ *   3. 浅色档为「暖岩黑曜基准」，暗色档为「纯血黑曜石」，禁止残留旧版青绿。
+ */
+
+:root {
+  /* ---------- 画布与表面（浅色：暖岩黑曜基准） ---------- */
+  --vr-bg-canvas: #f6f7f9;
+  --vr-bg-subtle: #edf0f2;
+  --vr-surface: #ffffff;
+  --vr-surface-raised: #ffffff;
+  --vr-surface-overlay: rgba(255, 255, 255, 0.92);
+  --vr-surface-hover: #f1f3f5;
+  --vr-surface-active: #e5e8eb;
+
+  /* ---------- 文字色阶 ---------- */
+  --vr-text-main: #111418;
+  --vr-text-muted: #5c6470;
+  --vr-text-faint: #8a94a6;
+  --vr-text-inverse: #ffffff;
+
+  /* ---------- 边框体系 ---------- */
+  --vr-border-subtle: #e3e7ed;
+  --vr-border-strong: #cfd6e0;
+  --vr-border-hairline: rgba(0, 0, 0, 0.06);
+
+  /* ---------- 语义色（高饱和点缀，克制使用） ---------- */
+  --vr-success: #0d9488;
+  --vr-success-bg: rgba(13, 148, 136, 0.1);
+  --vr-warning: #d97706;
+  --vr-warning-bg: rgba(217, 119, 6, 0.1);
+  --vr-danger: #e11d48;
+  --vr-danger-bg: rgba(225, 29, 72, 0.1);
+  --vr-info: #2563eb;
+  --vr-info-bg: rgba(37, 99, 235, 0.1);
+
+  /* ---------- 图表绘图原生令牌 ---------- */
+  --vr-chart-grid: #e2e8f0;
+  --vr-chart-bar: #334155;
+  --vr-chart-bar-hover: #0f172a;
+
+  /* ---------- 阴影 ---------- */
+  --vr-shadow-flat: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --vr-shadow-pop: 0 4px 16px -2px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.02);
+  --vr-shadow-modal: 0 16px 36px -4px rgba(0, 0, 0, 0.16), 0 0 0 1px var(--vr-border-subtle);
+
+  /* ---------- 字体与字阶 ---------- */
+  --vr-font-sans:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Noto Sans CJK SC',
+    sans-serif;
+  --vr-font-mono: 'JetBrains Mono', 'SF Mono', Consolas, 'Fira Code', monospace;
+
+  --vr-text-2xs: 11px;
+  --vr-text-xs: 12px;
+  --vr-text-sm: 13px;
+  --vr-text-base: 14px;
+  --vr-text-md: 15px;
+  --vr-text-lg: 18px;
+  --vr-text-xl: 22px;
+  --vr-text-2xl: 28px;
+
+  /* ---------- 间距刻度 ---------- */
+  --vr-sp-1: 4px;
+  --vr-sp-2: 6px;
+  --vr-sp-3: 8px;
+  --vr-sp-4: 12px;
+  --vr-sp-5: 16px;
+  --vr-sp-6: 20px;
+  --vr-sp-7: 24px;
+  --vr-sp-8: 32px;
+
+  /* ---------- 圆角 ---------- */
+  --vr-radius-xs: 4px;
+  --vr-radius-sm: 6px;
+  --vr-radius-md: 8px;
+  --vr-radius-lg: 12px;
+  --vr-radius-full: 9999px;
+
+  /* ---------- 层级 ---------- */
+  --vr-z-titlebar: 30;
+  --vr-z-sticky: 20;
+  --vr-z-popover: 40;
+  --vr-z-dialog: 900;
+  --vr-z-palette: 950;
+  --vr-z-toast: 1000;
+
+  /* ---------- 标题栏尺寸（与 Electron titleBarOverlay 高度对齐） ---------- */
+  --vr-titlebar-height: 32px;
+}
+
+:root[data-theme='dark'] {
+  /* ---------- 画布与表面（暗色：纯血黑曜石） ---------- */
+  --vr-bg-canvas: #090a0b;
+  --vr-bg-subtle: #111315;
+  --vr-surface: #15181b;
+  --vr-surface-raised: #1c2024;
+  --vr-surface-overlay: rgba(21, 24, 27, 0.92);
+  --vr-surface-hover: #22272c;
+  --vr-surface-active: #2b3138;
+
+  /* ---------- 文字色阶 ---------- */
+  --vr-text-main: #f0f3f6;
+  --vr-text-muted: #8b949e;
+  --vr-text-faint: #57606a;
+  --vr-text-inverse: #090a0b;
+
+  /* ---------- 边框体系 ---------- */
+  --vr-border-subtle: #24292f;
+  --vr-border-strong: #323842;
+  --vr-border-hairline: rgba(255, 255, 255, 0.06);
+
+  /* ---------- 语义色 ---------- */
+  --vr-success: #2dd4bf;
+  --vr-success-bg: rgba(45, 212, 191, 0.12);
+  --vr-warning: #fbbf24;
+  --vr-warning-bg: rgba(251, 191, 36, 0.12);
+  --vr-danger: #fb7185;
+  --vr-danger-bg: rgba(251, 113, 133, 0.12);
+  --vr-info: #60a5fa;
+  --vr-info-bg: rgba(96, 165, 250, 0.12);
+
+  /* ---------- 图表 ---------- */
+  --vr-chart-grid: #1e242b;
+  --vr-chart-bar: #94a3b8;
+  --vr-chart-bar-hover: #f1f5f9;
+
+  /* ---------- 阴影 ---------- */
+  --vr-shadow-flat: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --vr-shadow-pop: 0 4px 20px -2px rgba(0, 0, 0, 0.6), 0 0 0 1px var(--vr-border-subtle);
+  --vr-shadow-modal: 0 20px 48px -4px rgba(0, 0, 0, 0.8), 0 0 0 1px var(--vr-border-strong);
+}
+
+/*
+ * 语义别名：与旧版 --border-subtle / --primary 等命名对齐，
+ * 让共享层（ErrorBoundary 等）也能吃到同一套令牌。
+ */
+:root {
+  --primary: var(--vr-text-main);
+  --text-main: var(--vr-text-main);
+  --text-muted: var(--vr-text-muted);
+  --text-faint: var(--vr-text-faint);
+  --border-subtle: var(--vr-border-subtle);
+  --border-strong: var(--vr-border-strong);
+  --chrome-bg: var(--vr-surface);
+  --chrome-text: var(--vr-text-main);
+  --chrome-border: var(--vr-border-subtle);
+  --blue: var(--vr-info);
+  --green: var(--vr-success);
+  --amber: var(--vr-warning);
+  --coral: var(--vr-danger);
+  --violet: var(--vr-info);
+}
+
+/* ---------- 全局基础 ---------- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: var(--vr-bg-canvas);
+  color: var(--vr-text-main);
+  font-family: var(--vr-font-sans);
+  font-size: var(--vr-text-base);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* 数字与路径一律等宽，保证纵向基线对齐 */
+code,
+kbd,
+pre,
+.font-mono,
+.desk-mono {
+  font-family: var(--vr-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 焦点环：2px 内缩，避免在 overflow:hidden 容器里被裁切 ---------- */
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--vr-text-main);
+  outline-offset: -2px;
+  border-radius: var(--vr-radius-xs);
+}
+
+/* ---------- 滚动条 ---------- */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--vr-border-strong) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: var(--vr-border-strong);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: var(--vr-radius-full);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--vr-text-faint);
+}
+
+::selection {
+  background: var(--vr-info-bg);
+  color: var(--vr-text-main);
+}
+
+/* ---------- 无障碍：仅供屏幕阅读器 ---------- */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.skip-link {
+  position: absolute;
+  left: var(--vr-sp-4);
+  top: -60px;
+  z-index: var(--vr-z-toast);
+  padding: var(--vr-sp-2) var(--vr-sp-4);
+  background: var(--vr-surface);
+  border: 1px solid var(--vr-border-strong);
+  border-radius: var(--vr-radius-sm);
+  color: var(--vr-text-main);
+  font-size: var(--vr-text-xs);
+  text-decoration: none;
+  transition: top 140ms var(--vr-motion-ease, ease);
+}
+
+.skip-link:focus {
+  top: var(--vr-sp-3);
+}

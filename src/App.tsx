@@ -1,14 +1,16 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { AppShell } from './components/AppShell'
 import { CommandPalette } from './components/CommandPalette'
+import { DataStateBanner } from './components/DataStateBanner'
 import { ToastStack } from './components/ToastStack'
 import { UpdateBadge } from './components/UpdateBadge'
-import { ChronicleProvider } from './lib/store'
+import { ChronicleProvider, useChronicle } from './lib/store'
 import { applyTheme, getInitialTheme, type ThemeName } from './lib/theme'
 import { navItems } from './data/nav'
+import { dayKeyOf } from './lib/format'
+import { buildDailyReport } from './lib/summary'
+import { saveText } from './lib/desktop'
 import type { ToastMessage, ViewId } from './types'
-import './App.css'
-import './styles/voyra-ui.css'
 
 const TodayPage = lazy(() =>
   import('./pages/TodayPage').then((module) => ({ default: module.TodayPage })),
@@ -35,6 +37,17 @@ const SettingsPage = lazy(() =>
   import('./pages/SettingsPage').then((module) => ({ default: module.SettingsPage })),
 )
 
+const VIEW_TITLES: Record<ViewId, string> = {
+  today: '今日工作台',
+  history: '会话档案',
+  timeline: '时间轴',
+  projects: '项目集',
+  library: '成果集',
+  insights: '分析',
+  sources: '接入中心',
+  settings: '设置中心',
+}
+
 function getInitialView(): ViewId {
   const param = new URLSearchParams(window.location.search).get('view')
   if (param && navItems.some((item) => item.id === param)) {
@@ -43,7 +56,36 @@ function getInitialView(): ViewId {
   return 'today'
 }
 
-function App() {
+/**
+ * 导出今日日报。
+ * 命令面板与今日工作台共用同一个实现，保证两处文案与落盘文件名完全一致。
+ */
+function useDailyReportExport(pushToast: (toast: Omit<ToastMessage, 'id'>) => void) {
+  const { data } = useChronicle()
+  return useCallback(async () => {
+    if (!data) return
+    const todayKey = dayKeyOf(Date.now())
+    const sessions = data.sessions.filter((s) => s.start && dayKeyOf(s.start) === todayKey)
+    if (sessions.length === 0) {
+      pushToast({
+        tone: 'warning',
+        title: '今日暂无会话',
+        message: '没有可写入日报的今日会话记录。',
+      })
+      return
+    }
+    const md = buildDailyReport([...sessions].reverse())
+    const fileName = `AI工作日报-${todayKey}.md`
+    const result = await saveText(fileName, md)
+    pushToast(
+      result.ok
+        ? { tone: 'success', title: '日报导出成功', message: `文件已写入：${fileName}` }
+        : { tone: 'warning', title: '导出未完成', message: result.message ?? '请重试' },
+    )
+  }, [data, pushToast])
+}
+
+function Workspace() {
   const [activeView, setActiveView] = useState<ViewId>(getInitialView)
   const [theme, setTheme] = useState<ThemeName>(getInitialTheme)
   const [commandOpen, setCommandOpen] = useState(false)
@@ -60,53 +102,26 @@ function App() {
     }, 4200)
   }, [])
 
+  const exportDailyReport = useDailyReportExport(pushToast)
+
   useEffect(() => {
     applyTheme(theme)
   }, [theme])
 
+  // ⌘/Ctrl+K：命令面板。「/」由 AppShell 内部处理（需要当前视图的输入框引用）。
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
-      const target = event.target as HTMLElement | null
-      const typing =
-        target instanceof HTMLInputElement ||
-        target instanceof HTMLTextAreaElement ||
-        target?.isContentEditable === true
-
-      // ⌘/Ctrl + K：命令面板（可搜全部会话）
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault()
         setCommandOpen((open) => !open)
-        return
-      }
-
-      // 「/」：把焦点送到顶栏搜索框，与常见工具型软件一致。
-      // 正在输入时不拦截，否则无法在输入框里打斜杠。
-      if (event.key === '/' && !typing && !event.ctrlKey && !event.metaKey && !event.altKey) {
-        const search = document.querySelector<HTMLInputElement>('.global-search input')
-        if (search) {
-          event.preventDefault()
-          search.focus()
-          search.select()
-        }
       }
     }
-
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
 
   useEffect(() => {
-    const titles: Record<ViewId, string> = {
-      today: '今日工作台',
-      history: '会话档案',
-      timeline: '时间轴',
-      projects: '项目集',
-      library: '成果集',
-      insights: '分析',
-      sources: '接入中心',
-      settings: '设置中心',
-    }
-    document.title = `${titles[activeView]} · AI 轨迹`
+    document.title = `${VIEW_TITLES[activeView]} · AI 轨迹`
   }, [activeView])
 
   useEffect(() => {
@@ -123,7 +138,7 @@ function App() {
         pushToast({
           tone: 'success',
           title: '更新已下载',
-          message: `v${status.version} 已准备完成，点击右下角更新框即可安装。`,
+          message: `v${status.version} 已准备完成，点击右下角提示条即可安装。`,
         })
       }
       if (status.state === 'error') {
@@ -137,16 +152,9 @@ function App() {
   }, [pushToast])
 
   function navigate(view: ViewId, search?: string) {
+    // 离开当前视图前记录它的过滤词与滚动位置，切回来时原样恢复
     viewSearches.current[activeView] = searchQuery
-    viewScroll.current[activeView] = document.getElementById('main-content')?.scrollTop || 0
-    if (search !== undefined) {
-      try {
-        sessionStorage.setItem('voyra-view-history-range', '0')
-        sessionStorage.setItem('voyra-view-history-tool', JSON.stringify('all'))
-      } catch {
-        /* private browsing */
-      }
-    }
+    viewScroll.current[activeView] = document.getElementById('desk-viewport')?.scrollTop ?? 0
     setActiveView(view)
     const nextSearch = search ?? viewSearches.current[view] ?? ''
     setSearchQuery(nextSearch)
@@ -169,8 +177,9 @@ function App() {
     return () => window.removeEventListener('popstate', restore)
   }, [])
 
+  // 视图切换后恢复滚动位置（等 DOM 高度稳定后再设，避免被 clamp 回顶部）
   useEffect(() => {
-    const container = document.getElementById('main-content')
+    const container = document.getElementById('desk-viewport')
     if (!container) return
     const target = viewScroll.current[activeView] || 0
     const restore = () => {
@@ -209,9 +218,9 @@ function App() {
       case 'library':
         return <LibraryPage searchQuery={searchQuery} onClearSearch={clearSearch} />
       case 'insights':
-        return <InsightsPage onToast={pushToast} />
+        return <InsightsPage searchQuery={searchQuery} onToast={pushToast} />
       case 'sources':
-        return <SourcesPage onToast={pushToast} />
+        return <SourcesPage searchQuery={searchQuery} onToast={pushToast} />
       case 'settings':
         return <SettingsPage theme={theme} onThemeChange={setTheme} onToast={pushToast} />
       case 'today':
@@ -221,43 +230,57 @@ function App() {
   }
 
   return (
-    <ChronicleProvider>
+    <>
       <AppShell
         activeView={activeView}
         searchQuery={searchQuery}
         theme={theme}
-        onNavigate={navigate}
+        onNavigate={(view) => navigate(view)}
         onOpenCommand={() => setCommandOpen(true)}
         onSearchChange={setSearchQuery}
+        onClearSearch={clearSearch}
         onThemeToggle={() => setTheme((current) => (current === 'light' ? 'dark' : 'light'))}
         onToast={pushToast}
       >
+        <DataStateBanner onGoToSources={() => navigate('sources')} />
         <Suspense
           fallback={
-            <div className="page-loading" role="status">
+            <div className="desk-page-loading" role="status">
               <span className="spinner" />
               正在准备本地视图
             </div>
           }
         >
-          <div className="page-transition" key={activeView}>
+          <div className="desk-view-enter" key={activeView}>
             {renderPage()}
           </div>
         </Suspense>
       </AppShell>
+
       {commandOpen && (
         <CommandPalette
+          theme={theme}
           onClose={() => setCommandOpen(false)}
           onNavigate={navigate}
           onThemeToggle={() => setTheme((current) => (current === 'light' ? 'dark' : 'light'))}
           onAction={pushToast}
+          onExportDaily={() => void exportDailyReport()}
         />
       )}
+
       <ToastStack
         toasts={toasts}
         onDismiss={(id) => setToasts((current) => current.filter((toast) => toast.id !== id))}
       />
-      <UpdateBadge onNavigate={navigate} />
+      <UpdateBadge onNavigate={(view) => navigate(view)} />
+    </>
+  )
+}
+
+function App() {
+  return (
+    <ChronicleProvider>
+      <Workspace />
     </ChronicleProvider>
   )
 }

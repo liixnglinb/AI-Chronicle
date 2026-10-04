@@ -1,0 +1,57 @@
+/*
+ * 动效规范（Motion Tokens & Preferences）
+ * ------------------------------------------------------------------
+ * 时长上限 180ms，曲线统一 cubic-bezier(0.16, 1, 0.3, 1)（减速快出）。
+ * prefers-reduced-motion 下彻底关闭动画与过渡。
+ */
+
+:root {
+  --vr-motion-dur-fast: 100ms;
+  --vr-motion-dur-normal: 160ms;
+  --vr-motion-dur-slow: 240ms;
+  --vr-motion-ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* 视图平滑载入 */
+.desk-stage-viewport > .desk-view-enter {
+  animation: deskStageFadeIn var(--vr-motion-dur-normal) var(--vr-motion-ease);
+}
+
+@keyframes deskStageFadeIn {
+  from {
+    opacity: 0.55;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 列表逐项入场 */
+@keyframes deskListEnter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.desk-enter {
+  animation: deskListEnter var(--vr-motion-dur-normal) var(--vr-motion-ease);
+}
+
+/* 尊重减弱动效偏好 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
