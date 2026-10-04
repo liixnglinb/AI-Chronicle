@@ -59,7 +59,10 @@ export function InsightsPage({ searchQuery, onToast }: InsightsPageProps) {
           !q ||
           s.title.toLowerCase().includes(q) ||
           s.project.toLowerCase().includes(q) ||
-          s.toolName.toLowerCase().includes(q),
+          s.projectPath.toLowerCase().includes(q) ||
+          s.toolName.toLowerCase().includes(q) ||
+          s.model.toLowerCase().includes(q) ||
+          (s.artifacts ?? []).some((a) => a.name.toLowerCase().includes(q)),
       )
       .sort((a, b) => (b.start || 0) - (a.start || 0))
   }, [allSessions, dayRange, searchQuery])

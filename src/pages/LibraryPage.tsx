@@ -191,7 +191,10 @@ export function LibraryPage({ searchQuery, onClearSearch }: LibraryPageProps) {
           item.name.toLowerCase().includes(q) ||
           item.path.toLowerCase().includes(q) ||
           item.project.toLowerCase().includes(q) ||
-          item.toolName.toLowerCase().includes(q),
+          item.projectPath.toLowerCase().includes(q) ||
+          item.toolName.toLowerCase().includes(q) ||
+          // 关联会话标题也可搜：用户记得会话在干什么，但记不清文件名
+          item.sessionTitle.toLowerCase().includes(q),
       )
     }
     return list.sort((a, b) => (sortBy === 'size' ? b.size - a.size : b.mtime - a.mtime))

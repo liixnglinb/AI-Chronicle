@@ -79,7 +79,9 @@ export function HistoryPage({ searchQuery, onClearSearch }: HistoryPageProps) {
         s.project.toLowerCase().includes(q) ||
         s.projectPath.toLowerCase().includes(q) ||
         s.model.toLowerCase().includes(q) ||
-        s.toolName.toLowerCase().includes(q)
+        s.toolName.toLowerCase().includes(q) ||
+        // 产出文件名也要能搜到：用户记得「改过哪个文件」时往往不记得会话标题
+        (s.artifacts ?? []).some((a) => a.name.toLowerCase().includes(q))
       )
     })
   }, [allSessions, rangeFilter, toolFilter, searchQuery])

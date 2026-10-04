@@ -14,6 +14,21 @@ interface TimelinePageProps {
 const SLOTS_PER_DAY = 96 // 24 小时 × 4 格（15 分钟一格）
 const SLOT_MINUTES = 15
 
+/** 会话是否覆盖指定小时。跨零点的长会话两端都要能命中，不能只看开始时间。 */
+function hourOfSession(
+  session: { start: number | null; end: number | null },
+  hour: number,
+): boolean {
+  if (!session.start) return false
+  const start = new Date(session.start)
+  const end = new Date(session.end || session.start)
+  const slotStart = new Date(start)
+  slotStart.setHours(hour, 0, 0, 0)
+  const slotEnd = new Date(slotStart)
+  slotEnd.setHours(hour + 1, 0, 0, 0)
+  return start < slotEnd && end > slotStart
+}
+
 /**
  * 时间轴：24 小时 15 分钟级连续标尺 + 时间流动日志。
  *
@@ -24,6 +39,8 @@ const SLOT_MINUTES = 15
 export function TimelinePage({ searchQuery }: TimelinePageProps) {
   const { data, loading, isDesktop } = useChronicle()
   const [selectedHour, setSelectedHour] = useState<number | null>(null)
+  /** 悬停小时：仅高亮联动，不改变过滤，避免鼠标扫过标尺时下方流水剧烈跳动 */
+  const [hoverHour, setHoverHour] = useState<number | null>(null)
 
   const todayKey = useMemo(() => dayKeyOf(Date.now()), [])
 
@@ -102,25 +119,7 @@ export function TimelinePage({ searchQuery }: TimelinePageProps) {
   const displayedSessions = useMemo(() => {
     let list = todaySessions
     if (selectedHour !== null) {
-      list = list.filter((s) => {
-        if (!s.start) return false
-        const h = new Date(s.start).getHours()
-        // 跨零点的会话在 0 点那一小时也算命中
-        if (h === selectedHour) return true
-        if (s.end) {
-          const eh = new Date(s.end).getHours()
-          if (eh === selectedHour) return true
-          // 起点在选中小时之前、终点在其后 → 覆盖该小时
-          const startD = new Date(s.start)
-          startD.setMinutes(0, 0, 0)
-          const endD = new Date(s.end)
-          endD.setMinutes(0, 0, 0)
-          const slotStart = new Date()
-          slotStart.setHours(selectedHour, 0, 0, 0)
-          return startD <= slotStart && endD > slotStart
-        }
-        return false
-      })
+      list = list.filter((s) => hourOfSession(s, selectedHour))
     }
     const q = searchQuery.trim().toLowerCase()
     if (!q) return list
@@ -132,6 +131,15 @@ export function TimelinePage({ searchQuery }: TimelinePageProps) {
         s.toolName.toLowerCase().includes(q),
     )
   }, [todaySessions, selectedHour, searchQuery])
+
+  const highlightedIds = useMemo(() => {
+    if (hoverHour === null || selectedHour !== null) return null
+    const ids = new Set<string>()
+    for (const s of todaySessions) {
+      if (hourOfSession(s, hoverHour)) ids.add(s.id)
+    }
+    return ids
+  }, [hoverHour, selectedHour, todaySessions])
 
   if (!isDesktop) {
     return <DesktopOnlyPage title="时间轴" description="时间轴读取的是本机真实会话日志。" />
@@ -188,6 +196,8 @@ export function TimelinePage({ searchQuery }: TimelinePageProps) {
                 )}
                 data-level={level}
                 onClick={() => setSelectedHour(isSelected ? null : hour)}
+                onMouseEnter={() => setHoverHour(hour)}
+                onMouseLeave={() => setHoverHour((h) => (h === hour ? null : h))}
                 title={`${String(hour).padStart(2, '0')}:${String((idx % 4) * SLOT_MINUTES).padStart(2, '0')} · 活跃 ${Math.round(slot.minutes)} 分钟 · ${slot.sessions} 场会话覆盖`}
                 aria-label={`${hour} 时 ${(idx % 4) * SLOT_MINUTES} 分，活跃 ${Math.round(slot.minutes)} 分钟`}
               >
@@ -253,7 +263,12 @@ export function TimelinePage({ searchQuery }: TimelinePageProps) {
                 {idx !== displayedSessions.length - 1 && <span className="desk-axis-line" />}
               </span>
 
-              <div className="desk-panel desk-flow-card desk-enter">
+              <div
+                className={classNames(
+                  'desk-panel desk-flow-card desk-enter',
+                  highlightedIds && !highlightedIds.has(s.id) && 'is-dim',
+                )}
+              >
                 <div className="desk-flow-card-head">
                   <span className="desk-flow-head-left">
                     <span className="desk-flow-tool-name" style={{ color: s.toolColor }}>

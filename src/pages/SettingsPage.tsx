@@ -18,13 +18,14 @@ import { dayKeyOf } from '../lib/format'
 import { APP_ENV, CHANNEL_LABEL } from '../lib/env'
 import { Switch } from '../components/Switch'
 import { UpdatePanel } from '../components/UpdatePanel'
-import { DesktopOnlyPage } from '../components/EmptyState'
+import { EmptyState, DesktopOnlyPage } from '../components/EmptyState'
 import { classNames } from '../lib/utils'
 import type { ToastMessage } from '../types'
 import type { LucideIcon } from 'lucide-react'
 
 interface SettingsPageProps {
   theme: 'light' | 'dark'
+  searchQuery: string
   onThemeChange: (theme: 'light' | 'dark') => void
   onToast: (toast: Omit<ToastMessage, 'id'>) => void
 }
@@ -39,6 +40,20 @@ const SECTIONS: Array<{ id: SettingsSection; label: string; icon: LucideIcon }> 
   { id: 'update', label: '软件更新', icon: ArrowUpCircle },
   { id: 'diag', label: '关于与诊断', icon: Cpu },
 ]
+
+/**
+ * 各分区参与搜索的关键词。
+ * 顶栏搜索框在设置中心同样要有过滤效果 —— 输入「备份」应直接跳到安全备份分区，
+ * 否则这个框在设置页就成了摆设（P0-1 的原始诉求）。
+ */
+const SECTION_KEYWORDS: Record<SettingsSection, string[]> = {
+  appearance: ['外观', '主题', '深色', '浅色', '黑曜', '暖灰', '缩放', '高分屏', '字体', 'theme'],
+  ingest: ['采集', '刷新', '轮询', '静默', '重新采集', '缓存', 'ingest'],
+  desktop: ['桌面', '托盘', '开机', '自启', '通知', '集成', 'desktop'],
+  backup: ['备份', '加密', '解密', '密码', '导出', '导入', '校验', 'aes', 'gcm', 'backup'],
+  update: ['更新', '版本', '升级', '下载', '安装', 'update'],
+  diag: ['诊断', '关于', '日志', '目录', '平台', '版本', '复制', '校验接入', 'diag'],
+}
 
 const AUTO_REFRESH_OPTIONS: Array<[AutoRefreshInterval, string]> = [
   [60, '1 分钟'],
@@ -80,9 +95,9 @@ function passwordStrength(pw: string): {
  * 左侧 6 个固定锚点，右侧渲染标准设置行（图标 + 标题 + 辅助说明 + 右侧控件），
  * 保证开关、按钮、分段控制器在任意缩放比下基线对齐。
  */
-export function SettingsPage({ theme, onThemeChange, onToast }: SettingsPageProps) {
+export function SettingsPage({ theme, searchQuery, onThemeChange, onToast }: SettingsPageProps) {
   const { data, refresh, isDesktop, settings, updateSettings } = useChronicle()
-  const [activeSection, setActiveSection] = useState<SettingsSection>('appearance')
+  const [manualSection, setManualSection] = useState<SettingsSection | null>(null)
   const [runtime, setRuntime] = useState<DesktopRuntimeInfo | null>(null)
   const [zoomPercent, setZoomPercent] = useState(100)
   const [desktopPrefs, setDesktopPrefs] = useState<DesktopPrefs>({
@@ -113,6 +128,25 @@ export function SettingsPage({ theme, onThemeChange, onToast }: SettingsPageProp
   }, [])
 
   const strength = useMemo(() => passwordStrength(backupPassword), [backupPassword])
+
+  // 搜索命中的分区集合。空搜索 = 全部可见（导航仍显示全部 6 项）。
+  const matchedSections = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase()
+    if (!q) return null
+    return SECTIONS.filter((section) => {
+      const keywords = SECTION_KEYWORDS[section.id]
+      return section.label.toLowerCase().includes(q) || keywords.some((k) => k.includes(q))
+    }).map((section) => section.id)
+  }, [searchQuery])
+
+  // 命中优先：搜索词生效时自动切到第一个命中分区，用户点导航可覆盖
+  const activeSection: SettingsSection = useMemo(() => {
+    if (manualSection) return manualSection
+    if (matchedSections && matchedSections.length > 0) return matchedSections[0]
+    return 'appearance'
+  }, [manualSection, matchedSections])
+
+  const isSectionVisible = (id: SettingsSection) => !matchedSections || matchedSections.includes(id)
 
   async function handleZoomChange(target: number) {
     setZoomPercent(target)
@@ -312,13 +346,13 @@ export function SettingsPage({ theme, onThemeChange, onToast }: SettingsPageProp
   return (
     <div className="desk-settings-shell">
       <nav className="desk-settings-nav" aria-label="设置导航">
-        {SECTIONS.map((section) => {
+        {SECTIONS.filter((section) => isSectionVisible(section.id)).map((section) => {
           const Icon = section.icon
           return (
             <button
               key={section.id}
               className={classNames('desk-set-tab', activeSection === section.id && 'active')}
-              onClick={() => setActiveSection(section.id)}
+              onClick={() => setManualSection(section.id)}
               aria-current={activeSection === section.id ? 'true' : undefined}
             >
               <Icon size={15} />
@@ -329,8 +363,18 @@ export function SettingsPage({ theme, onThemeChange, onToast }: SettingsPageProp
       </nav>
 
       <section className="desk-settings-content">
+        {matchedSections && matchedSections.length === 0 && (
+          <div className="desk-set-card desk-enter">
+            <EmptyState
+              compact
+              title="没有匹配的设置项"
+              description={`过滤词「${searchQuery}」没有命中任何设置分区。试试「备份」「主题」「更新」等关键词。`}
+            />
+          </div>
+        )}
+
         {/* ---------- 外观与显示 ---------- */}
-        {activeSection === 'appearance' && (
+        {activeSection === 'appearance' && isSectionVisible('appearance') && (
           <div className="desk-set-card desk-enter">
             <h3 className="desk-set-title">外观与界面缩放</h3>
 
@@ -379,7 +423,7 @@ export function SettingsPage({ theme, onThemeChange, onToast }: SettingsPageProp
         )}
 
         {/* ---------- 数据采集 ---------- */}
-        {activeSection === 'ingest' && (
+        {activeSection === 'ingest' && isSectionVisible('ingest') && (
           <div className="desk-set-card desk-enter">
             <h3 className="desk-set-title">数据采集策略</h3>
 
@@ -423,7 +467,7 @@ export function SettingsPage({ theme, onThemeChange, onToast }: SettingsPageProp
         )}
 
         {/* ---------- 桌面集成 ---------- */}
-        {activeSection === 'desktop' && (
+        {activeSection === 'desktop' && isSectionVisible('desktop') && (
           <div className="desk-set-card desk-enter">
             <h3 className="desk-set-title">操作系统级集成</h3>
 
@@ -466,7 +510,7 @@ export function SettingsPage({ theme, onThemeChange, onToast }: SettingsPageProp
         )}
 
         {/* ---------- 安全备份 ---------- */}
-        {activeSection === 'backup' && (
+        {activeSection === 'backup' && isSectionVisible('backup') && (
           <div className="desk-set-card desk-enter">
             <h3 className="desk-set-title">安全加密与本地备份</h3>
             <p className="desk-source-detail">
@@ -539,7 +583,7 @@ export function SettingsPage({ theme, onThemeChange, onToast }: SettingsPageProp
         )}
 
         {/* ---------- 软件更新 ---------- */}
-        {activeSection === 'update' && (
+        {activeSection === 'update' && isSectionVisible('update') && (
           <div className="desk-set-card desk-enter">
             <h3 className="desk-set-title">软件版本更新</h3>
             <UpdatePanel onToast={onToast} />
@@ -547,7 +591,7 @@ export function SettingsPage({ theme, onThemeChange, onToast }: SettingsPageProp
         )}
 
         {/* ---------- 关于与诊断 ---------- */}
-        {activeSection === 'diag' && (
+        {activeSection === 'diag' && isSectionVisible('diag') && (
           <div className="desk-set-card desk-enter">
             <h3 className="desk-set-title">环境诊断与运行时详情</h3>
 

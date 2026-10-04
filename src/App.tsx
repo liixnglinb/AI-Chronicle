@@ -97,9 +97,10 @@ function Workspace() {
   const pushToast = useCallback((toast: Omit<ToastMessage, 'id'>) => {
     const id = Date.now() + Math.floor(Math.random() * 1000)
     setToasts((current) => [...current.slice(-2), { ...toast, id }])
+    // 统一停留 4 秒：短于 4 秒读不完，长于 6 秒开始挡路
     window.setTimeout(() => {
       setToasts((current) => current.filter((item) => item.id !== id))
-    }, 4200)
+    }, 4000)
   }, [])
 
   const exportDailyReport = useDailyReportExport(pushToast)
@@ -222,7 +223,14 @@ function Workspace() {
       case 'sources':
         return <SourcesPage searchQuery={searchQuery} onToast={pushToast} />
       case 'settings':
-        return <SettingsPage theme={theme} onThemeChange={setTheme} onToast={pushToast} />
+        return (
+          <SettingsPage
+            theme={theme}
+            searchQuery={searchQuery}
+            onThemeChange={setTheme}
+            onToast={pushToast}
+          />
+        )
       case 'today':
       default:
         return <TodayPage searchQuery={searchQuery} onToast={pushToast} />

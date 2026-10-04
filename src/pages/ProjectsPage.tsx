@@ -78,7 +78,13 @@ export function ProjectsPage({ searchQuery, onClearSearch, onToast }: ProjectsPa
     return projectGroups.filter(
       (g) =>
         g.path.toLowerCase().includes(q) ||
-        g.sessions.some((s) => s.title.toLowerCase().includes(q)),
+        g.tools.some((t) => t.name.toLowerCase().includes(q)) ||
+        g.sessions.some(
+          (s) =>
+            s.title.toLowerCase().includes(q) ||
+            s.model.toLowerCase().includes(q) ||
+            (s.artifacts ?? []).some((a) => a.name.toLowerCase().includes(q)),
+        ),
     )
   }, [projectGroups, searchQuery])
 
