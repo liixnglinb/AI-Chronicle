@@ -135,7 +135,9 @@ const KIND_META: Record<KindCategory, { label: string; Icon: typeof File; tone: 
  * 并提供「打开文件」与「在文件夹中定位」双入口。
  */
 export function LibraryPage({ searchQuery, onClearSearch }: LibraryPageProps) {
-  const { data, loading, isDesktop } = useChronicle()
+  const { data, loading, isDesktop, settings } = useChronicle()
+  // 关闭时整列「所属项目」与相对路径都不渲染，表格轨道数同步收窄（.is-no-proj）
+  const showPaths = settings.showProjectPaths
   const [kindFilter, setKindFilter] = useState<KindCategory>('all')
   const [sortBy, setSortBy] = useState<'mtime' | 'size'>('mtime')
 
@@ -273,10 +275,12 @@ export function LibraryPage({ searchQuery, onClearSearch }: LibraryPageProps) {
         </div>
       </div>
 
-      <div className="desk-panel desk-artifact-table-card">
+      <div
+        className={classNames('desk-panel', 'desk-artifact-table-card', !showPaths && 'is-no-proj')}
+      >
         <div className="desk-art-table-head">
-          <span className="desk-col-file">文件名 / 相对路径</span>
-          <span>所属项目</span>
+          <span className="desk-col-file">{showPaths ? '文件名 / 相对路径' : '文件名'}</span>
+          {showPaths && <span>所属项目</span>}
           <span className="desk-col-src">产生源</span>
           <span>关联会话</span>
           <span>改动时间</span>
@@ -290,19 +294,23 @@ export function LibraryPage({ searchQuery, onClearSearch }: LibraryPageProps) {
             const Icon = meta.Icon
             return (
               <div key={art.path} className="desk-art-row">
-                <span className="desk-col-file" title={art.path}>
+                <span className="desk-col-file" title={showPaths ? art.path : art.name}>
                   <Icon size={15} className={`desk-art-ico ${meta.tone}`} />
                   <span className="desk-file-name-meta">
                     <strong className="desk-fname">{art.name}</strong>
-                    <span className="desk-fpath">
-                      {shortenPath(art.path, art.projectPath || art.project)}
-                    </span>
+                    {showPaths && (
+                      <span className="desk-fpath">
+                        {shortenPath(art.path, art.projectPath || art.project)}
+                      </span>
+                    )}
                   </span>
                 </span>
 
-                <span className="desk-proj-badge" title={art.projectPath}>
-                  {projectDisplayName(art.projectPath || art.project, allProjectPaths)}
-                </span>
+                {showPaths && (
+                  <span className="desk-proj-badge" title={art.projectPath}>
+                    {projectDisplayName(art.projectPath || art.project, allProjectPaths)}
+                  </span>
+                )}
 
                 <span className="desk-col-src">
                   <span className="desk-src-tag" style={{ borderColor: art.toolColor }}>

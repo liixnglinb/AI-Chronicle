@@ -14,10 +14,12 @@ export type AutoRefreshInterval = 60 | 300 | 900 | 0
 
 export interface ChronicleSettings {
   autoRefreshSeconds: AutoRefreshInterval
+  /** 界面是否显示工作目录（目录名 / 面包屑 / 完整路径）。默认关闭，只在设置中心手动打开 */
+  showProjectPaths: boolean
 }
 
 const SETTINGS_KEY = 'ai-chronicle-settings-v1'
-const DEFAULT_SETTINGS: ChronicleSettings = { autoRefreshSeconds: 60 }
+const DEFAULT_SETTINGS: ChronicleSettings = { autoRefreshSeconds: 60, showProjectPaths: false }
 
 function loadSettings(): ChronicleSettings {
   try {
@@ -28,6 +30,7 @@ function loadSettings(): ChronicleSettings {
       autoRefreshSeconds: [0, 60, 300, 900].includes(parsed.autoRefreshSeconds ?? 60)
         ? (parsed.autoRefreshSeconds as AutoRefreshInterval)
         : DEFAULT_SETTINGS.autoRefreshSeconds,
+      showProjectPaths: parsed.showProjectPaths === true,
     }
   } catch {
     return DEFAULT_SETTINGS
@@ -44,16 +47,7 @@ interface ChronicleContextValue {
   refresh: (force?: boolean) => Promise<boolean>
   /** 当前采集阶段：全量采集 3~15 秒，需要阶段感知而不是一个孤零零的转圈 */
   progress: IngestProgress | null
-  update: {
-    state: string
-    version?: string
-    percent?: number
-    notes?: string
-    message?: string
-    source?: string
-    skippedVersion?: string
-    probes?: Array<{ id: string; label: string; ok: boolean; ms: number }>
-  } | null
+  update: UpdateStatusPayload | null
 }
 
 const ChronicleContext = createContext<ChronicleContextValue | null>(null)
@@ -135,21 +129,22 @@ export function ChronicleProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
-  // 更新状态：主进程事件 → 上下文（常驻更新框 / 设置页共用）
+  // 更新状态：主进程事件 → 上下文（常驻更新框 / 设置页共用）。
+  // 挂载时先拉一次当前状态：主进程在启动 7 秒就查完并推送过了，渲染进程重载
+  // （崩溃后一键重新加载、手动刷新）若只等推送，界面会退回「尚未检查」，
+  // 已经下载好的更新包也就看不见了。已经收到过推送时不回卷，避免用旧值盖掉新值。
   useEffect(() => {
     if (!window.desktopAPI) return undefined
-    return window.desktopAPI.onUpdateStatus((status) => {
-      setUpdate({
-        state: status.state,
-        version: status.version,
-        percent: status.percent,
-        notes: status.notes,
-        message: status.message,
-        source: status.source,
-        skippedVersion: status.skippedVersion,
-        probes: status.probes,
-      })
+    let pushed = false
+    const unsubscribe = window.desktopAPI.onUpdateStatus((status) => {
+      pushed = true
+      setUpdate(status)
     })
+    void window.desktopAPI.getUpdateState().then((status) => {
+      if (pushed) return
+      setUpdate(status)
+    })
+    return unsubscribe
   }, [])
 
   const value = useMemo<ChronicleContextValue>(

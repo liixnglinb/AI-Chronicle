@@ -31,11 +31,13 @@ export function AppShell({
   onThemeToggle,
   onToast,
 }: AppShellProps) {
-  const { data, loading, error, refresh, progress } = useChronicle()
+  const { data, loading, error, refresh, progress, settings } = useChronicle()
   const [refreshing, setRefreshing] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
 
   const currentNav = navItems.find((n) => n.id === activeView)
+  // 项目集是按工作目录归组的视图，跟随目录开关出现（开关默认关）
+  const visibleNav = navItems.filter((item) => item.id !== 'projects' || settings.showProjectPaths)
   const connectedCount = data?.sources.filter((s) => s.status === 'connected').length ?? 0
   const failedCount = data?.sources.filter((s) => s.status === 'error').length ?? 0
 
@@ -107,7 +109,7 @@ export function AppShell({
       <div className="desk-body">
         <aside className="desk-sidebar">
           <nav className="desk-nav-list" aria-label="核心导航">
-            {navItems.map((item) => {
+            {visibleNav.map((item) => {
               const Icon = item.icon
               const active = item.id === activeView
               return (

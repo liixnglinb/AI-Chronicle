@@ -35,7 +35,8 @@ const RANGE_OPTIONS: InsightRange[] = [7, 14, 30]
  * 颜色与 CSS 令牌同源，切换主题立即生效。
  */
 export function InsightsPage({ searchQuery, onToast }: InsightsPageProps) {
-  const { data, loading, isDesktop } = useChronicle()
+  const { data, loading, isDesktop, settings } = useChronicle()
+  const showPaths = settings.showProjectPaths
   const [dayRange, setDayRange] = useViewState<InsightRange>(
     'insights-range',
     14,
@@ -105,28 +106,48 @@ export function InsightsPage({ searchQuery, onToast }: InsightsPageProps) {
       .sort((a, b) => b.count - a.count)
   }, [sessions])
 
-  // 项目透视：会话数 / 轮次 / 产出 / 时长
+  // 投入透视：主键跟随目录开关在「工作目录」与「AI 软件」之间切换，
+  // 关闭目录时 path 留空，界面与 title 都无从显示路径
   const projectStats = useMemo(() => {
     const map = new Map<
       string,
-      { turns: number; artifacts: number; minutes: number; last: number }
+      {
+        label: string
+        color: string
+        path: string
+        turns: number
+        artifacts: number
+        minutes: number
+        last: number
+      }
     >()
     for (const s of sessions) {
-      const key = s.projectPath || s.project
+      const key = showPaths ? s.projectPath || s.project : s.tool || s.toolName
       if (!key) continue
-      const item = map.get(key) || { turns: 0, artifacts: 0, minutes: 0, last: 0 }
+      let item = map.get(key)
+      if (!item) {
+        item = {
+          label: showPaths ? projectDisplayName(key, allProjectPaths) : s.toolName,
+          color: s.toolColor,
+          path: showPaths ? key : '',
+          turns: 0,
+          artifacts: 0,
+          minutes: 0,
+          last: 0,
+        }
+        map.set(key, item)
+      }
       item.turns += s.turns
       item.artifacts += s.artifacts?.length ?? 0
       item.minutes += sessionDurationMinutes(s)
       const end = s.end || s.start || 0
       if (end > item.last) item.last = end
-      map.set(key, item)
     }
     return [...map.entries()]
-      .map(([path, v]) => ({ path, ...v }))
+      .map(([key, v]) => ({ key, ...v }))
       .sort((a, b) => b.turns - a.turns)
       .slice(0, 12)
-  }, [sessions])
+  }, [sessions, showPaths, allProjectPaths])
 
   const totals = useMemo(() => {
     const turns = sessions.reduce((sum, s) => sum + s.turns, 0)
@@ -225,30 +246,30 @@ export function InsightsPage({ searchQuery, onToast }: InsightsPageProps) {
         <ToolSplitTrack ratios={toolSplit} />
       </div>
 
-      {/* 重点项目透视 */}
+      {/* 投入透视：目录档看「哪个项目花得多」，软件档看「哪个软件花得多」 */}
       <div className="desk-panel desk-chart-card desk-enter">
         <div className="desk-panel-title">
-          <FolderOpen size={14} />
-          <span>重点项目投入透视</span>
-          <small>按交互轮次排序 · 可直接打开目录</small>
+          {showPaths ? <FolderOpen size={14} /> : <Cpu size={14} />}
+          <span>{showPaths ? '重点项目投入透视' : '重点软件投入透视'}</span>
+          <small>{showPaths ? '按交互轮次排序 · 可直接打开目录' : '按交互轮次排序'}</small>
         </div>
         <div className="desk-scan-list">
           {projectStats.map((project) => (
-            <div className="desk-scan-row" key={project.path}>
-              <strong title={project.path}>
-                {projectDisplayName(project.path, allProjectPaths)}
-              </strong>
+            <div className="desk-scan-row" key={project.key}>
+              <strong title={showPaths ? project.path : undefined}>{project.label}</strong>
               <span>{project.turns} 轮</span>
               <span>{project.artifacts} 产出</span>
               <span>{formatDuration(project.minutes) || '跨度不足 1 分钟'}</span>
-              <button
-                onClick={() => void openFolder(project.path)}
-                className="desk-icon-btn-ghost"
-                title={`打开：${project.path}`}
-                aria-label={`打开项目目录 ${project.path}`}
-              >
-                <FolderOpen size={13} />
-              </button>
+              {showPaths && (
+                <button
+                  onClick={() => void openFolder(project.path)}
+                  className="desk-icon-btn-ghost"
+                  title={`打开：${project.path}`}
+                  aria-label={`打开项目目录 ${project.path}`}
+                >
+                  <FolderOpen size={13} />
+                </button>
+              )}
             </div>
           ))}
         </div>

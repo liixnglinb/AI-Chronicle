@@ -16,6 +16,13 @@ export interface WorkSummaryItem {
   focus: string
 }
 
+/**
+ * 归组主键：按工作目录，或按 AI 软件。
+ * `tool` 档用于「隐藏目录信息」的默认界面 —— 此时 path 一律留空，
+ * 调用方就无从也无处再显示目录名。
+ */
+export type SummaryGroupBy = 'path' | 'tool'
+
 const ARTIFACT_KINDS: Array<{ test: RegExp; label: string }> = [
   { test: /\.(tsx?|jsx?|css|html)$/i, label: '界面与代码' },
   { test: /\.(py|cjs|mjs)$/i, label: '脚本与流程' },
@@ -39,21 +46,26 @@ export function artifactKind(path: string): string | null {
 }
 
 /**
- * 按工作目录归组，只提炼项目、软件、轮次和真实产出，不展示用户发给 AI 的原文。
+ * 按工作目录或按 AI 软件归组，只提炼项目、软件、轮次和真实产出，不展示用户发给 AI 的原文。
  * 单次遍历完成归组与统计（早期实现按项目二次过滤会话，规模大时是 O(n²)）。
  */
-export function buildWorkSummary(sessions: SessionRecord[]): WorkSummaryItem[] {
+export function buildWorkSummary(
+  sessions: SessionRecord[],
+  groupBy: SummaryGroupBy = 'path',
+): WorkSummaryItem[] {
   const groups = new Map<string, { item: WorkSummaryItem; kinds: Set<string> }>()
 
   for (const s of sessions) {
     const path = s.projectPath || s.project || '(未知目录)'
-    let group = groups.get(path)
+    const key = groupBy === 'tool' ? s.tool || s.toolName : path
+    let group = groups.get(key)
     if (!group) {
       group = {
         item: {
-          key: path,
-          project: s.project || basenameOf(path) || '(未知项目)',
-          path,
+          key,
+          // 按软件归组时标题就是软件名，path 留空：界面与日报都没有目录可显示
+          project: groupBy === 'tool' ? s.toolName : s.project || basenameOf(path) || '(未知项目)',
+          path: groupBy === 'tool' ? '' : path,
           tools: [],
           count: 0,
           turns: 0,
@@ -65,7 +77,7 @@ export function buildWorkSummary(sessions: SessionRecord[]): WorkSummaryItem[] {
         },
         kinds: new Set<string>(),
       }
-      groups.set(path, group)
+      groups.set(key, group)
     }
 
     const { item } = group
@@ -156,7 +168,11 @@ function groupArtifacts(sessions: SessionRecord[]): Array<{ kind: string; paths:
  * 因此按项目段落写清「做了什么」，会话表只保留一行一条，产出按类型截断，
  * 不在三处重复同样的项目名。不含用户输入原文，只保留会话标题。
  */
-export function buildDailyReport(sessions: SessionRecord[], now = Date.now()): string {
+export function buildDailyReport(
+  sessions: SessionRecord[],
+  now = Date.now(),
+  groupBy: SummaryGroupBy = 'path',
+): string {
   const lines: string[] = []
   const day = dayKeyOf(now)
   lines.push(`# AI 工作日报 · ${day}`)
@@ -172,13 +188,16 @@ export function buildDailyReport(sessions: SessionRecord[], now = Date.now()): s
   const artifacts = groupArtifacts(sessions)
   const artifactTotal = artifacts.reduce((sum, group) => sum + group.paths.length, 0)
   const window = activeWindow(sessions)
-  const projects = buildWorkSummary(sessions)
+  const projects = buildWorkSummary(sessions, groupBy)
 
   // 一句话总览
   const lead =
-    `今天在 ${projects.length} 个目录用了 ${tools.length} 个软件，` +
-    `完成 ${sessions.length} 个会话、${turns} 轮对话，` +
-    (artifactTotal ? `产出 ${artifactTotal} 个文件。` : '没有检测到文件改动。')
+    groupBy === 'tool'
+      ? `今天在 ${projects.length} 款 AI 软件里完成 ${sessions.length} 个会话、${turns} 轮对话，` +
+        (artifactTotal ? `产出 ${artifactTotal} 个文件。` : '没有检测到文件改动。')
+      : `今天在 ${projects.length} 个目录用了 ${tools.length} 个软件，` +
+        `完成 ${sessions.length} 个会话、${turns} 轮对话，` +
+        (artifactTotal ? `产出 ${artifactTotal} 个文件。` : '没有检测到文件改动。')
   lines.push(lead)
   lines.push('')
 
@@ -198,13 +217,14 @@ export function buildDailyReport(sessions: SessionRecord[], now = Date.now()): s
     lines.push(`| 产出文件 | ${artifactTotal} 个（${kindText}） |`)
   }
 
-  // 按项目归纳：这是日报的主体，写清「做了什么」
+  // 按归组主键写「做了什么」：这是日报主体
   lines.push('')
   lines.push('## 做了什么')
   lines.push('')
   const byProject = new Map<string, SessionRecord[]>()
   for (const s of sessions) {
-    const key = s.projectPath || s.project || '(未知目录)'
+    const key =
+      groupBy === 'tool' ? s.tool || s.toolName : s.projectPath || s.project || '(未知目录)'
     const bucket = byProject.get(key)
     if (bucket) bucket.push(s)
     else byProject.set(key, [s])
@@ -215,9 +235,9 @@ export function buildDailyReport(sessions: SessionRecord[], now = Date.now()): s
       .sort((a, b) => (a.start ?? 0) - (b.start ?? 0))
     const when =
       item.first && item.last ? `${formatClock(item.first)}–${formatClock(item.last)}` : '时间未知'
-    lines.push(
-      `### ${item.project} · ${item.tools.join(' / ')} · ${item.count} 会话 · ${item.turns} 轮 · ${when}`,
-    )
+    // 按软件归组时标题本身就是软件名，再列一遍工具属于重复信息
+    const toolTail = groupBy === 'tool' ? '' : ` · ${item.tools.join(' / ')}`
+    lines.push(`### ${item.project}${toolTail} · ${item.count} 会话 · ${item.turns} 轮 · ${when}`)
     lines.push('')
     // 产出说明紧跟项目标题，避免挂在最后一条会话下面被误读成该会话的产物
     if (item.artifactCount) {

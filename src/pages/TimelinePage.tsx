@@ -37,7 +37,9 @@ function hourOfSession(
  * 点击任一小时可联动筛选下方流水。
  */
 export function TimelinePage({ searchQuery }: TimelinePageProps) {
-  const { data, loading, isDesktop } = useChronicle()
+  const { data, loading, isDesktop, settings } = useChronicle()
+  // 目录标签默认不渲染（设置中心可打开）；卡片头本来就有软件名，隐藏后仍看得出是谁干的
+  const showPaths = settings.showProjectPaths
   const [selectedHour, setSelectedHour] = useState<number | null>(null)
   /** 悬停小时：仅高亮联动，不改变过滤，避免鼠标扫过标尺时下方流水剧烈跳动 */
   const [hoverHour, setHoverHour] = useState<number | null>(null)
@@ -276,9 +278,11 @@ export function TimelinePage({ searchQuery }: TimelinePageProps) {
                     </span>
                     <span className="desk-flow-time-range">{formatTimeRange(s.start, s.end)}</span>
                   </span>
-                  <span className="desk-flow-proj-tag" title={s.projectPath}>
-                    {projectDisplayName(s.projectPath || s.project, allProjectPaths)}
-                  </span>
+                  {showPaths && (
+                    <span className="desk-flow-proj-tag" title={s.projectPath}>
+                      {projectDisplayName(s.projectPath || s.project, allProjectPaths)}
+                    </span>
+                  )}
                 </div>
 
                 <h4 className="desk-flow-title">{s.title || '（无交互意图记录）'}</h4>

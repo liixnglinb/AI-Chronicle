@@ -126,6 +126,35 @@ describe('buildWorkSummary', () => {
     expect(paths).toContain('(未知目录)')
   })
 
+  it('按软件归组时同一软件的多个目录合并成一条', () => {
+    const result = buildWorkSummary(
+      [
+        session({ id: 'a', tool: 'claude', toolName: 'Claude Code', turns: 2 }),
+        session({
+          id: 'b',
+          tool: 'claude',
+          toolName: 'Claude Code',
+          project: 'other',
+          projectPath: 'C:\\work\\other',
+          turns: 5,
+        }),
+        session({ id: 'c', tool: 'codex', toolName: 'Codex', turns: 1 }),
+      ],
+      'tool',
+    )
+
+    expect(result).toHaveLength(2)
+    const claude = result.find((item) => item.project === 'Claude Code')!
+    expect(claude.count).toBe(2)
+    expect(claude.turns).toBe(7)
+  })
+
+  it('按软件归组不产出任何目录字段（界面与日报都无路径可显示）', () => {
+    const result = buildWorkSummary([session(), session({ id: 'b', tool: 'codex' })], 'tool')
+    expect(result.every((item) => item.path === '')).toBe(true)
+    expect(result.map((item) => item.key)).toEqual(['claude', 'codex'])
+  })
+
   it('空输入返回空数组', () => {
     expect(buildWorkSummary([])).toEqual([])
   })
@@ -221,6 +250,27 @@ describe('buildDailyReport', () => {
 
   it('没有产出时不输出产出章节', () => {
     expect(buildDailyReport([session()], now)).not.toContain('## 产出文件')
+  })
+
+  it('按软件归组的日报：总览改说软件、分段标题不再重复工具名、正文无目录', () => {
+    const md = buildDailyReport(
+      [
+        session({ id: 'a', toolName: 'Claude Code' }),
+        session({
+          id: 'b',
+          tool: 'codex',
+          toolName: 'Codex',
+          project: 'other',
+          projectPath: 'C:\\work\\other',
+        }),
+      ],
+      now,
+      'tool',
+    )
+    expect(md).toContain('今天在 2 款 AI 软件里完成 2 个会话')
+    expect(md).toContain('### Claude Code · 1 会话')
+    expect(md).toContain('### Codex · 1 会话')
+    expect(md).not.toContain('C:\\work')
   })
 
   it('空输入给出一句话说明而不是空表格', () => {

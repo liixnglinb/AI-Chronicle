@@ -29,7 +29,10 @@ interface TodayPageProps {
  * 目标是把「今天干了什么」压缩到一屏内可读完，而不是流水账。
  */
 export function TodayPage({ searchQuery, onToast }: TodayPageProps) {
-  const { data, loading, isDesktop } = useChronicle()
+  const { data, loading, isDesktop, settings } = useChronicle()
+  // 目录信息默认隐藏（设置中心可打开）：主键随之从工作目录换成 AI 软件
+  const showPaths = settings.showProjectPaths
+  const groupBy = showPaths ? 'path' : ('tool' as const)
 
   const todayKey = useMemo(() => dayKeyOf(Date.now()), [])
 
@@ -39,7 +42,10 @@ export function TodayPage({ searchQuery, onToast }: TodayPageProps) {
       .sort((a, b) => (b.start || 0) - (a.start || 0))
   }, [data, todayKey])
 
-  const workSummary = useMemo(() => buildWorkSummary(todaySessions), [todaySessions])
+  const workSummary = useMemo(
+    () => buildWorkSummary(todaySessions, groupBy),
+    [todaySessions, groupBy],
+  )
 
   // 层级 3 的过滤：按项目名 / 核心事项 / 工具名匹配当前视图的搜索词
   const filteredSummary = useMemo(() => {
@@ -62,6 +68,7 @@ export function TodayPage({ searchQuery, onToast }: TodayPageProps) {
       path: string
       mtime: number
       project: string
+      toolName: string
       toolColor: string
     }> = []
     const all: Array<{
@@ -69,6 +76,7 @@ export function TodayPage({ searchQuery, onToast }: TodayPageProps) {
       path: string
       mtime: number
       project: string
+      toolName: string
       toolColor: string
     }> = []
     for (const s of todaySessions) {
@@ -77,7 +85,9 @@ export function TodayPage({ searchQuery, onToast }: TodayPageProps) {
           name: a.name,
           path: a.path,
           mtime: a.mtime,
-          project: projectDisplayName(s.projectPath || s.project),
+          // 目录隐藏时不带 project，胶囊改显示「哪个软件改的」
+          project: showPaths ? projectDisplayName(s.projectPath || s.project) : '',
+          toolName: s.toolName,
           toolColor: s.toolColor,
         })
       }
@@ -90,7 +100,7 @@ export function TodayPage({ searchQuery, onToast }: TodayPageProps) {
       if (list.length >= 6) break
     }
     return list
-  }, [todaySessions])
+  }, [todaySessions, showPaths])
 
   const kpis = useMemo(() => {
     if (todaySessions.length === 0) return null
@@ -126,7 +136,7 @@ export function TodayPage({ searchQuery, onToast }: TodayPageProps) {
 
   async function handleExport() {
     if (todaySessions.length === 0) return
-    const md = buildDailyReport([...todaySessions].reverse())
+    const md = buildDailyReport([...todaySessions].reverse(), Date.now(), groupBy)
     const fileName = `AI工作日报-${todayKey}.md`
     const result = await saveText(fileName, md)
     onToast(
@@ -174,7 +184,9 @@ export function TodayPage({ searchQuery, onToast }: TodayPageProps) {
           </span>
           <h2 className="desk-kpi-lead">
             {kpis
-              ? `共调用 ${kpis.toolCount} 款 AI 工具，在 ${kpis.projects} 个工作目录完成 ${todaySessions.length} 场会话。`
+              ? showPaths
+                ? `共调用 ${kpis.toolCount} 款 AI 工具，在 ${kpis.projects} 个工作目录完成 ${todaySessions.length} 场会话。`
+                : `共调用 ${kpis.toolCount} 款 AI 工具，完成 ${todaySessions.length} 场会话。`
               : '今日暂无会话'}
           </h2>
           {kpis && (
@@ -230,11 +242,13 @@ export function TodayPage({ searchQuery, onToast }: TodayPageProps) {
                 key={art.path}
                 className="desk-artifact-chip"
                 onClick={() => void openLocalPath(art.path)}
-                title={art.path}
+                title={showPaths ? art.path : art.name}
               >
                 <FileCode size={13} style={{ color: art.toolColor }} />
                 <span className="desk-chip-name">{art.name}</span>
-                <span className="desk-chip-proj">({art.project})</span>
+                <span className="desk-chip-proj">
+                  {showPaths ? `(${art.project})` : art.toolName}
+                </span>
                 <ExternalLink size={10} className="desk-chip-open" />
               </button>
             ))}
@@ -245,15 +259,18 @@ export function TodayPage({ searchQuery, onToast }: TodayPageProps) {
       {/* ---------- 层级 3：项目聚合折叠群 ---------- */}
       <div className="desk-project-summary-list">
         {filteredSummary.map((item) => {
-          const display = projectDisplayName(item.path, allProjectPaths)
+          // 目录档用消歧后的项目名（Monorepo 同名要靠祖先段区分），软件档直接用软件名
+          const display = showPaths ? projectDisplayName(item.path, allProjectPaths) : item.project
           return (
             <div key={item.key} className="desk-panel desk-summary-card desk-enter">
               <div className="desk-summary-card-head">
                 <div className="desk-summary-id">
                   <span className="desk-summary-proj">{display}</span>
-                  <span className="desk-summary-path" title={item.path}>
-                    {item.path}
-                  </span>
+                  {showPaths && (
+                    <span className="desk-summary-path" title={item.path}>
+                      {item.path}
+                    </span>
+                  )}
                 </div>
                 <div className="desk-summary-meta">
                   <span className="desk-meta-badge">{item.count} 次会话</span>
@@ -276,11 +293,13 @@ export function TodayPage({ searchQuery, onToast }: TodayPageProps) {
               </div>
 
               <div className="desk-summary-tools">
-                {item.tools.map((t) => (
-                  <span key={t} className="desk-tool-tag">
-                    {t}
-                  </span>
-                ))}
+                {/* 软件档的标题已经是软件名，再列一遍工具标签是重复信息 */}
+                {showPaths &&
+                  item.tools.map((t) => (
+                    <span key={t} className="desk-tool-tag">
+                      {t}
+                    </span>
+                  ))}
                 {item.artifactNames.length > 0 && (
                   <span className="desk-tool-tag">
                     代表产出：{item.artifactNames.slice(0, 3).join('、')}
@@ -295,7 +314,7 @@ export function TodayPage({ searchQuery, onToast }: TodayPageProps) {
           <EmptyState
             compact
             title="没有匹配的项目聚合"
-            description="换个关键词，或清空顶部过滤条件查看今日全部工作目录。"
+            description={`换个关键词，或清空顶部过滤条件查看今日全部${showPaths ? '工作目录' : '软件聚合'}。`}
           />
         )}
       </div>

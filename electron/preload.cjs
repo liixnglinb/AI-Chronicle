@@ -21,6 +21,10 @@ contextBridge.exposeInMainWorld('desktopAPI', {
     ipcRenderer.invoke('desktop:export-encrypted-backup', payload),
   openEncryptedBackup: (password) => ipcRenderer.invoke('desktop:open-encrypted-backup', password),
   checkForUpdates: () => ipcRenderer.invoke('desktop:check-for-updates'),
+  getUpdateState: () => ipcRenderer.invoke('desktop:get-update-state'),
+  downloadUpdate: () => ipcRenderer.invoke('desktop:download-update'),
+  setUpdateAutoDownload: (enabled) =>
+    ipcRenderer.invoke('desktop:set-update-auto-download', !!enabled),
   installUpdate: () => ipcRenderer.invoke('desktop:install-update'),
   setSkippedUpdate: (version) => ipcRenderer.invoke('desktop:set-skipped-update', version),
   openUpdatePage: () => ipcRenderer.invoke('desktop:open-update-page'),

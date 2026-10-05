@@ -80,6 +80,8 @@
   --vr-radius-md: 8px;
   --vr-radius-lg: 12px;
   --vr-radius-full: 9999px;
+  /* 区域接缝的内圆弧半径：标题栏/侧栏/舞台条/视口四块满铺相接处的转角 */
+  --vr-radius-junction: 10px;
 
   /* ---------- 层级 ---------- */
   --vr-z-titlebar: 30;

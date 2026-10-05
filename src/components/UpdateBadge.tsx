@@ -85,7 +85,7 @@ export function UpdateBadge({ onNavigate }: UpdateBadgeProps) {
           )}
           {state === 'downloaded' && <ArrowUpRight size={14} />}
           <span>
-            {state === 'available' && `新版本 v${actions.version} · 后台下载中`}
+            {state === 'available' && `新版本 v${actions.version} · 点击下载`}
             {state === 'downloading' && `下载中 ${percent}%`}
             {state === 'downloaded' && `v${actions.version} 已就绪 · 点击安装`}
           </span>

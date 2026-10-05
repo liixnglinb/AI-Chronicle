@@ -18,6 +18,9 @@ output
 .env*
 .mimosa
 
+# 本机更新自检用的 dev feed（CHRONICLE_DEV_UPDATE=1 时 electron-updater 读它）
+dev-app-update.yml
+
 # 本地设计草稿与截图，不进入发布仓库
 icon-proposals/
 ac-*.png

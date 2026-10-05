@@ -36,7 +36,9 @@ const RANGE_OPTIONS: Array<[RangeOption, string]> = [
  * 全量铺开既慢又让人找不到东西。
  */
 export function HistoryPage({ searchQuery, onClearSearch }: HistoryPageProps) {
-  const { data, loading, isDesktop } = useChronicle()
+  const { data, loading, isDesktop, settings } = useChronicle()
+  // 目录名默认不显示（搜索仍能命中目录），行内以「软件徽标 + 会话标题」为主
+  const showPaths = settings.showProjectPaths
   const [rangeFilter, setRangeFilter] = useViewState<RangeOption>(
     'history-range',
     7,
@@ -257,16 +259,18 @@ export function HistoryPage({ searchQuery, onClearSearch }: HistoryPageProps) {
                           {s.title || '（空白会话标题）'}
                         </span>
                         <span className="desk-row-meta">
-                          <span
-                            className="desk-meta-proj"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              if (s.projectPath) void openLocalPath(s.projectPath)
-                            }}
-                            title={`在工作目录中打开：${s.projectPath}`}
-                          >
-                            {projectDisplayName(s.projectPath || s.project, allProjectPaths)}
-                          </span>
+                          {showPaths && (
+                            <span
+                              className="desk-meta-proj"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                if (s.projectPath) void openLocalPath(s.projectPath)
+                              }}
+                              title={`在工作目录中打开：${s.projectPath}`}
+                            >
+                              {projectDisplayName(s.projectPath || s.project, allProjectPaths)}
+                            </span>
+                          )}
                           {s.model && <span className="desk-meta-model">{s.model}</span>}
                           <span className="desk-meta-turns">{s.turns} 轮</span>
                           {s.artifacts.length > 0 && (

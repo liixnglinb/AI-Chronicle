@@ -47,7 +47,24 @@ const SECTIONS: Array<{ id: SettingsSection; label: string; icon: LucideIcon }> 
  * 否则这个框在设置页就成了摆设（P0-1 的原始诉求）。
  */
 const SECTION_KEYWORDS: Record<SettingsSection, string[]> = {
-  appearance: ['外观', '主题', '深色', '浅色', '黑曜', '暖灰', '缩放', '高分屏', '字体', 'theme'],
+  appearance: [
+    '外观',
+    '主题',
+    '深色',
+    '浅色',
+    '黑曜',
+    '暖灰',
+    '缩放',
+    '高分屏',
+    '字体',
+    'theme',
+    '目录',
+    '路径',
+    '工作目录',
+    '项目集',
+    '面包屑',
+    '隐藏',
+  ],
   ingest: ['采集', '刷新', '轮询', '静默', '重新采集', '缓存', 'ingest'],
   desktop: ['桌面', '托盘', '开机', '自启', '通知', '集成', 'desktop'],
   backup: ['备份', '加密', '解密', '密码', '导出', '导入', '校验', 'aes', 'gcm', 'backup'],
@@ -418,6 +435,20 @@ export function SettingsPage({ theme, searchQuery, onThemeChange, onToast }: Set
                   </button>
                 ))}
               </div>
+            </div>
+
+            <div className="desk-set-row">
+              <span className="desk-set-copy">
+                <strong>显示目录路径</strong>
+                <small>
+                  默认只显示「在哪个软件干了什么」。打开后恢复目录名、面包屑与完整路径，侧栏同时出现「项目集」视图
+                </small>
+              </span>
+              <Switch
+                label="显示目录路径"
+                checked={settings.showProjectPaths}
+                onChange={(checked) => updateSettings({ showProjectPaths: checked })}
+              />
             </div>
           </div>
         )}

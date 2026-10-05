@@ -38,7 +38,8 @@ export function CommandPalette({
   onAction,
   onExportDaily,
 }: CommandPaletteProps) {
-  const { data, refresh } = useChronicle()
+  const { data, refresh, settings } = useChronicle()
+  const showPaths = settings.showProjectPaths
   const [query, setQuery] = useState('')
   const [selectedIndex, setSelectedIndex] = useState(0)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -251,8 +252,9 @@ export function CommandPalette({
                         {session.title || '（未命名会话）'}
                       </strong>
                       <small className="desk-cmd-item-hint">
-                        {session.project} · {session.toolName} ·{' '}
-                        {formatTimeRange(session.start, session.end)}
+                        {/* 目录默认不进提示行；软件名 + 时间段足以定位是哪一次会话 */}
+                        {showPaths && `${session.project} · `}
+                        {session.toolName} · {formatTimeRange(session.start, session.end)}
                       </small>
                     </span>
                     {selectedIndex === itemIndex && (

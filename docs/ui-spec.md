@@ -122,14 +122,17 @@
 
 ### 圆角 / 边框 / 阴影
 
-| 令牌            | 值    | 用途                           |
-| --------------- | ----- | ------------------------------ |
-| `--radius-xs`   | 6px   | 徽标、小色块、分段控件内部按钮 |
-| `--radius-sm`   | 8px   | 图标按钮、输入框、小型容器     |
-| `--radius-md`   | 10px  | 按钮、列表行、卡片内块         |
-| `--radius-lg`   | 14px  | 卡片、弹窗、区块               |
-| `--radius-xl`   | 18px  | 大容器（预留）                 |
-| `--radius-full` | 999px | 胶囊（chip、badge、开关）      |
+> **v0.6.8 起重建后令牌统一带 `--vr-` 前缀，唯一来源是 `src/styles/voyra-tokens.css`**；
+> 下表的历史名（`--radius-*`）与 `src/App.css` 入口已不存在，只作档位语义参考。
+
+| 令牌                   | 值     | 用途                           |
+| ---------------------- | ------ | ------------------------------ |
+| `--vr-radius-xs`       | 4px    | 徽标、小色块、分段控件内部按钮 |
+| `--vr-radius-sm`       | 6px    | 图标按钮、输入框、导航行       |
+| `--vr-radius-md`       | 8px    | 卡片（`.desk-panel`）          |
+| `--vr-radius-lg`       | 12px   | 弹窗、区块                     |
+| `--vr-radius-junction` | 10px   | **区域接缝的内圆弧**（见 ⑦）   |
+| `--vr-radius-full`     | 9999px | 胶囊（chip、badge、开关）      |
 
 阴影：`--shadow-xs`（贴边）→ `--shadow-sm`（卡片）→ `--shadow-md`（浮层）→ `--shadow-lg`（弹窗）。
 边框：结构分隔用 `--border-subtle`，可交互边界用 `--border`。
@@ -284,3 +287,43 @@
 ### 一致性
 
 同一功能在不同页面必须一致：页头用 `PageHeader`、指标用 `SummaryStrip`、空状态用 `EmptyState`、计数用 `Badge`、异步操作按钮用 `Button loading`。
+
+---
+
+## ⑦ 区域接缝与目录信息显示（2026-10-05）
+
+### 接缝内圆弧
+
+标题栏 / 侧栏 / 舞台条 / 视口四块是**满铺相接**的，直接给某块加 `border-radius` 只会咬出一个方缺口
+（露出的是同色的 `.desk-app` 背景）。所以转角用 `radial-gradient` 把**相邻区域的底色画进缺口**，
+两侧看起来就各自收出了圆角：
+
+- `.desk-stage::before`：标题栏 + 侧栏（同为 `--vr-bg-subtle`）→ 舞台条的左上转角
+- `.desk-stage-bar { border-bottom-left-radius }`：舞台条 → 视口 / 侧栏的左下转角
+
+半径统一取 `--vr-radius-junction`。验收方式是**逐行取色**看分界列号是否连续变化（直角则恒定），
+不是看截图顺不顺眼。
+
+### 导航行的对比度
+
+图标必须**跟随按钮文字色一起提亮**：`.desk-nav-icon` 若自带一档 `--vr-text-faint`，
+hover 换底色时它不会跟着变，暗档实测只有 2.30:1（背景一亮图标就糊）。
+现约定静止 `--vr-text-muted`、hover / 选中 `--vr-text-main`；
+暗档选中底色另提到 `--vr-surface-active`，保证 **选中 > 悬停 > 静止** 的层级不被反转。
+
+2026-10-05 实测（图标与所在底色）：暗档 静止 6.83 / 悬停 13.52 / 选中 11.79；
+浅档 静止 3.51 / 悬停 16.60 / 选中 18.47。浅档静止态 3.51 只达非文本对比度 3:1，
+**未达正文 AA 4.5:1**（标签文字同值，属既有问题，尚未处理）。
+
+### 目录信息显示开关
+
+`ChronicleSettings.showProjectPaths`（localStorage `ai-chronicle-settings-v1`，**默认 false**）：
+
+- 关闭时：目录名 / 面包屑 / 相对路径 / `title` 里的完整路径一律不渲染，「项目集」入口从侧栏消失
+  （深链 `?view=projects` 落到带出路的空状态，不留白页）
+- 归组主键随之从工作目录换成 AI 软件：`buildWorkSummary(sessions, 'tool')`、
+  `buildDailyReport(sessions, now, 'tool')`、分析页透视同步；**日报导出跟随界面口径**
+- 搜索仍能命中目录名与路径（隐藏显示不等于削弱可检索性）
+- 接入中心的探测路径**不受开关影响**：那一页的职责就是交代读了哪些目录，藏掉即失效
+- 成果集表格关闭时少一列，靠 `.desk-artifact-table-card.is-no-proj` 同步收窄
+  `grid-template-columns`，否则整表错位（验收：表头与行的分界列号逐个相等）

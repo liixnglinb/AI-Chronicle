@@ -141,11 +141,19 @@
   box-shadow: var(--vr-shadow-flat);
 }
 
-.desk-nav-icon {
-  flex: 0 0 auto;
-  color: var(--vr-text-faint);
+/* 暗色档 --vr-surface(#15181b) 只比侧栏底(#111315)亮一档，反而弱于 hover(#22272c)，
+   选中项被悬停项压住。暗档提到 surface-active，保证 选中 > 悬停 > 静止。 */
+:root[data-theme='dark'] .desk-nav-btn.active {
+  background: var(--vr-surface-active);
 }
 
+.desk-nav-icon {
+  flex: 0 0 auto;
+  /* 与标签同档（muted）；此前用 faint，压在 hover 底色上只有 2.3:1，背景一亮图标就糊 */
+  color: var(--vr-text-muted);
+}
+
+.desk-nav-btn:hover .desk-nav-icon,
 .desk-nav-btn.active .desk-nav-icon {
   color: var(--vr-text-main);
 }
@@ -212,19 +220,42 @@
   padding: 0 var(--vr-sp-1);
 }
 
-/* ============================ 舞台 ============================ */
+/* ============================ 区域接缝 ============================ */
+/* 满铺布局的内圆弧：直接给某块加 border-radius 只会咬出一个方缺口
+   （露出的是同色的 .desk-app 背景），所以用 radial-gradient 把相邻区域的
+   底色画进转角，两侧看起来就各自收出了圆角。半径见 --vr-radius-junction。 */
 .desk-stage {
   flex: 1;
   display: flex;
   flex-direction: column;
   min-width: 0;
   background: var(--vr-bg-canvas);
+  position: relative;
 }
 
+/* 标题栏 / 侧栏（同为 bg-subtle）→ 舞台条的左上转角 */
+.desk-stage::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--vr-radius-junction);
+  height: var(--vr-radius-junction);
+  background: radial-gradient(
+    circle at 100% 100%,
+    transparent calc(var(--vr-radius-junction) - 0.5px),
+    var(--vr-bg-subtle) var(--vr-radius-junction)
+  );
+  pointer-events: none;
+}
+
+/* ============================ 舞台 ============================ */
 .desk-stage-bar {
   height: 44px;
   flex: 0 0 auto;
   border-bottom: 1px solid var(--vr-border-subtle);
+  /* 舞台条 → 视口 / 侧栏的左下转角 */
+  border-bottom-left-radius: var(--vr-radius-junction);
   display: flex;
   align-items: center;
   justify-content: space-between;

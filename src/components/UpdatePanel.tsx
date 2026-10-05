@@ -3,6 +3,7 @@ import { RefreshCw } from 'lucide-react'
 import { useChronicle } from '../lib/store'
 import { Button } from './Button'
 import { ConfirmDialog } from './Modal'
+import { Switch } from './Switch'
 import type { ToastMessage } from '../types'
 
 /**
@@ -43,6 +44,7 @@ export function InstallConfirmDialog({
 export function useUpdateActions(onToast?: (toast: Omit<ToastMessage, 'id'>) => void) {
   const { update, isDesktop } = useChronicle()
   const [checking, setChecking] = useState(false)
+  const [downloading, setDownloading] = useState(false)
   const [installing, setInstalling] = useState(false)
   const [confirmInstall, setConfirmInstall] = useState(false)
 
@@ -68,6 +70,33 @@ export function useUpdateActions(onToast?: (toast: Omit<ToastMessage, 'id'>) => 
     } finally {
       setChecking(false)
     }
+  }
+
+  /** 手动开始下载：IPC 在下载完成时才回包，过程中的百分比由事件推送 */
+  async function startDownload() {
+    if (!window.desktopAPI || state !== 'available') return
+    setDownloading(true)
+    try {
+      const result = await window.desktopAPI.downloadUpdate()
+      onToast?.({
+        tone: result.ok ? 'success' : 'warning',
+        title: result.ok ? `v${version} 下载完成` : '下载未能启动',
+        message: result.message ?? '',
+      })
+    } finally {
+      setDownloading(false)
+    }
+  }
+
+  async function setAutoDownload(enabled: boolean) {
+    await window.desktopAPI?.setUpdateAutoDownload(enabled)
+    onToast?.({
+      tone: 'info',
+      title: enabled ? '已开启自动下载' : '已关闭自动下载',
+      message: enabled
+        ? '发现新版本后直接取安装包（约 110 MB）。'
+        : '发现新版本后要点「下载更新包」才开始取包。',
+    })
   }
 
   function requestInstall() {
@@ -116,10 +145,13 @@ export function useUpdateActions(onToast?: (toast: Omit<ToastMessage, 'id'>) => 
     version,
     disabled,
     checking,
+    downloading,
     installing,
     confirmInstall,
     setConfirmInstall,
     checkUpdate,
+    startDownload,
+    setAutoDownload,
     requestInstall,
     runInstall,
     skipVersion,
@@ -133,7 +165,7 @@ export function useUpdateActions(onToast?: (toast: Omit<ToastMessage, 'id'>) => 
  * 覆盖全部状态：未检查 / 检查中 / 有新版 / 下载中 / 已就绪 / 已是最新 / 已跳过 / 出错 / 开发模式。
  */
 export function UpdatePanel({ onToast }: { onToast: (toast: Omit<ToastMessage, 'id'>) => void }) {
-  const { update } = useChronicle()
+  const { update, isDesktop } = useChronicle()
   const actions = useUpdateActions(onToast)
   const percent = Math.min(100, Math.max(0, update?.percent ?? 0))
   const { state } = actions
@@ -204,6 +236,17 @@ export function UpdatePanel({ onToast }: { onToast: (toast: Omit<ToastMessage, '
             检查更新
           </Button>
 
+          {state === 'available' && (
+            <Button
+              variant="primary"
+              loading={actions.downloading}
+              disabled={actions.disabled}
+              onClick={() => void actions.startDownload()}
+            >
+              下载更新包
+            </Button>
+          )}
+
           {state === 'downloaded' && (
             <Button variant="primary" onClick={actions.requestInstall}>
               安装并重启
@@ -234,6 +277,17 @@ export function UpdatePanel({ onToast }: { onToast: (toast: Omit<ToastMessage, '
           )}
         </div>
       </div>
+
+      {isDesktop && (
+        <div className="desk-update-auto">
+          <Switch
+            label="自动下载更新包"
+            checked={!!update?.autoDownload}
+            onChange={(checked) => void actions.setAutoDownload(checked)}
+          />
+          <span>打开后发现新版本即自动取安装包（约 110 MB）；关闭时需要手动点「下载更新包」</span>
+        </div>
+      )}
 
       {actions.confirmInstall && (
         <InstallConfirmDialog

@@ -1,6 +1,19 @@
 export {}
 
 declare global {
+  /** 主进程 → 渲染进程的更新状态载荷（推送与拉取共用同一份形状） */
+  interface UpdateStatusPayload {
+    state: string
+    version?: string
+    percent?: number
+    message?: string
+    notes?: string
+    source?: string
+    skippedVersion?: string
+    autoDownload?: boolean
+    probes?: Array<{ id: string; label: string; ok: boolean; ms: number }>
+  }
+
   interface DesktopRuntimeInfo {
     version: string
     platform: string
@@ -147,21 +160,14 @@ declare global {
         skipped?: boolean
         probes?: Array<{ id: string; label: string; ok: boolean; ms: number }>
       }>
+      /** 拉取主进程当前的更新状态（推送只在状态变化时发一次） */
+      getUpdateState: () => Promise<UpdateStatusPayload>
+      downloadUpdate: () => Promise<{ ok: boolean; version?: string; message?: string }>
+      setUpdateAutoDownload: (enabled: boolean) => Promise<{ ok: boolean; autoDownload: boolean }>
       installUpdate: () => Promise<{ ok: boolean; canceled?: boolean; message?: string }>
       setSkippedUpdate: (version: string | null) => Promise<{ ok: boolean; skippedVersion: string }>
       openUpdatePage: () => Promise<{ ok: boolean }>
-      onUpdateStatus: (
-        callback: (status: {
-          state: string
-          version?: string
-          percent?: number
-          message?: string
-          notes?: string
-          source?: string
-          skippedVersion?: string
-          probes?: Array<{ id: string; label: string; ok: boolean; ms: number }>
-        }) => void,
-      ) => () => void
+      onUpdateStatus: (callback: (status: UpdateStatusPayload) => void) => () => void
       onIngestProgress: (callback: (progress: IngestProgress) => void) => () => void
     }
   }

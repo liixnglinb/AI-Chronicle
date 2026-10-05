@@ -291,6 +291,17 @@
   gap: var(--vr-sp-4);
 }
 
+/* 自动下载偏好：面板底部一行，开关在左、说明在右 */
+.desk-update-auto {
+  display: flex;
+  align-items: center;
+  gap: var(--vr-sp-3);
+  padding-top: var(--vr-sp-3);
+  border-top: 1px solid var(--vr-border-subtle);
+  font-size: var(--vr-text-xs);
+  color: var(--vr-text-muted);
+}
+
 .desk-update-main {
   display: flex;
   align-items: flex-start;

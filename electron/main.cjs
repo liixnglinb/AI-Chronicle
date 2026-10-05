@@ -615,16 +615,21 @@ let updateState = {
   message: '',
   source: '',
   skippedVersion: '',
+  autoDownload: false,
 }
 let updateCheckInFlight = null
 let lastUpdateCheckAt = 0
 let lastUpdateCheckResult = null
 let updaterConfigured = false
+// 已确认可用的新版本号：换源重试时用它决定「只重下」还是「重新检查」
+let pendingUpdateVersion = ''
 // 下载/校验失败时可切换的备用源（按测速顺序，索引 0 是当前使用的源）
 let feedProbes = []
 let feedFallbackIndex = 1
 
 const UPDATE_CHECK_THROTTLE_MS = 10_000
+// 常驻托盘的应用不能只在启动时查一次：6 小时一轮，出错不打扰
+const UPDATE_PERIODIC_CHECK_MS = 6 * 60 * 60 * 1000
 const UPDATE_PAGE = 'https://github.com/liixnglinb/AI-Chronicle/releases/latest'
 
 function updatePrefsFile() {
@@ -632,12 +637,28 @@ function updatePrefsFile() {
 }
 
 function loadUpdatePrefs() {
+  let parsed = {}
   try {
-    const parsed = JSON.parse(fs.readFileSync(updatePrefsFile(), 'utf8'))
-    return { skippedVersion: '', ...(parsed && typeof parsed === 'object' ? parsed : {}) }
+    parsed = JSON.parse(fs.readFileSync(updatePrefsFile(), 'utf8'))
+    if (!parsed || typeof parsed !== 'object') parsed = {}
   } catch {
-    return { skippedVersion: '' }
+    parsed = {}
   }
+  return {
+    skippedVersion: String(parsed.skippedVersion ?? ''),
+    // 更新包 110MB 左右，默认不自动下载；需要用户点一下或在设置里打开自动下载
+    autoDownload: parsed.autoDownload === true,
+  }
+}
+
+function saveUpdatePrefs(patch) {
+  const merged = { ...loadUpdatePrefs(), ...patch }
+  try {
+    fs.writeFileSync(updatePrefsFile(), JSON.stringify(merged), 'utf8')
+  } catch {
+    // 写入失败只影响偏好持久化，不阻断本次操作
+  }
+  return merged
 }
 
 function setUpdateState(patch) {
@@ -736,7 +757,9 @@ function markdownToPlain(md) {
 }
 
 async function runUpdateCheck({ force = false } = {}) {
-  if (!app.isPackaged) {
+  // CHRONICLE_DEV_UPDATE=1 让开发模式也走真实检查（electron-updater 读仓库根的
+  // dev-app-update.yml，该文件已 gitignore），用于本机验证「检查 → 有新版 → 下载 → 就绪」整条链路。
+  if (!app.isPackaged && !process.env.CHRONICLE_DEV_UPDATE) {
     setUpdateState({ state: 'unavailable', version: '', notes: '', percent: 0 })
     return {
       ok: false,
@@ -770,6 +793,13 @@ function probeSummary(probed) {
   return probed.map((p) => ({ id: p.id, label: p.label, ok: p.ok, ms: p.ms }))
 }
 
+/** 有新版时的说明文案：自动下载与手动下载两种口径，检查与改偏好两处共用 */
+function availableMessage(version, source, autoDownload) {
+  return autoDownload
+    ? `发现新版本 v${version}，正从「${source}」下载。`
+    : `发现新版本 v${version}（安装包约 110 MB），点「下载更新包」后从「${source}」取。`
+}
+
 async function doUpdateCheck(force) {
   setUpdateState({ state: 'checking', message: '' })
   const { probed, winner } = await pickUpdateFeed()
@@ -793,6 +823,7 @@ async function doUpdateCheck(force) {
     const source = `${winner.label}（${winner.ms}ms）`
 
     if (!version || compareVersions(version, app.getVersion()) <= 0) {
+      pendingUpdateVersion = ''
       setUpdateState({ state: 'not-available', version: '', notes: '', percent: 0, message: '' })
       return {
         ok: true,
@@ -826,6 +857,10 @@ async function doUpdateCheck(force) {
     }
 
     const notes = markdownToPlain(await fetchReleaseNotes())
+    pendingUpdateVersion = version
+    const { autoDownload } = loadUpdatePrefs()
+    // 文案要一起进状态：面板的说明行读的是 update.message，不传就一直显示旧的通用提示
+    const message = availableMessage(version, winner.label, autoDownload)
     setUpdateState({
       state: 'available',
       version,
@@ -833,6 +868,8 @@ async function doUpdateCheck(force) {
       percent: 0,
       source: winner.label,
       skippedVersion: '',
+      autoDownload,
+      message,
     })
     return {
       ok: true,
@@ -841,7 +878,7 @@ async function doUpdateCheck(force) {
       source,
       probes,
       notes,
-      message: `发现新版本 v${version}，正从「${winner.label}」下载。`,
+      message,
     }
   } catch (err) {
     const message = `检查更新失败（更新源：${winner.label}）：${String(err && err.message).slice(0, 120)}`
@@ -860,17 +897,23 @@ function configureUpdater() {
   // 幂等：托盘菜单与启动流程都会调用，重复注册会叠加事件监听与定时器
   if (updaterConfigured) return
   updaterConfigured = true
-  if (!app.isPackaged) return
+  if (!app.isPackaged && !process.env.CHRONICLE_DEV_UPDATE) return
+  // 开发模式下的自检：feed 从仓库根的 dev-app-update.yml 读（已 gitignore，不入库不打包）
+  if (!app.isPackaged) autoUpdater.forceDevUpdateConfig = true
 
-  autoUpdater.autoDownload = true
+  const initialPrefs = loadUpdatePrefs()
+  // 安装包约 110 MB：默认等用户点「下载更新包」，或在设置中心打开自动下载
+  autoUpdater.autoDownload = initialPrefs.autoDownload
   // 更新必须经用户在界面确认后才安装（合规要求），退出时不静默安装
   autoUpdater.autoInstallOnAppQuit = false
+  setUpdateState({ autoDownload: initialPrefs.autoDownload })
 
   autoUpdater.on('checking-for-update', () => {
     setUpdateState({ state: 'checking' })
   })
   autoUpdater.on('update-available', (info) => {
     const version = String(info.version)
+    pendingUpdateVersion = version
     const skipped = loadUpdatePrefs().skippedVersion
     if (skipped === version) {
       setUpdateState({
@@ -885,6 +928,7 @@ function configureUpdater() {
     setUpdateState({ state: 'available', version, percent: 0 })
   })
   autoUpdater.on('update-not-available', () => {
+    pendingUpdateVersion = ''
     setUpdateState({ state: 'not-available', version: '', notes: '', percent: 0 })
   })
   autoUpdater.on('download-progress', (progress) => {
@@ -892,6 +936,7 @@ function configureUpdater() {
   })
   autoUpdater.on('update-downloaded', (info) => {
     const version = String(info.version)
+    pendingUpdateVersion = ''
     const skipped = loadUpdatePrefs().skippedVersion
     if (skipped === version) {
       setUpdateState({
@@ -903,7 +948,13 @@ function configureUpdater() {
       })
       return
     }
-    setUpdateState({ state: 'downloaded', version, percent: 100 })
+    setUpdateState({
+      state: 'downloaded',
+      version,
+      percent: 100,
+      // 就绪后不能再留着「点下载更新包」的旧说明
+      message: `v${version} 安装包已下载并通过 sha512 校验，点「安装并重启」完成更新。`,
+    })
   })
   autoUpdater.on('error', (error) => {
     const message = String(error?.message ?? '更新失败').slice(0, 160)
@@ -912,11 +963,17 @@ function configureUpdater() {
     const next = feedProbes[feedFallbackIndex]
     if (next) {
       feedFallbackIndex += 1
-      setUpdateState({ state: 'checking', message: `已切换到「${next.label}」重试` })
-      autoUpdater.setFeedURL({ provider: 'generic', url: next.base })
-      autoUpdater.checkForUpdates().catch(() => {
-        setUpdateState({ state: 'error', message })
+      // 已经拿到 updateInfo 时只重试下载：换源后重跑 checkForUpdates 会把 110 MB 再下一遍
+      const retryDownload = Boolean(pendingUpdateVersion)
+      setUpdateState({
+        state: 'checking',
+        message: retryDownload
+          ? `已切换到「${next.label}」继续下载 v${pendingUpdateVersion}`
+          : `已切换到「${next.label}」重试`,
       })
+      autoUpdater.setFeedURL({ provider: 'generic', url: next.base })
+      const retry = retryDownload ? autoUpdater.downloadUpdate() : autoUpdater.checkForUpdates()
+      Promise.resolve(retry).catch(() => setUpdateState({ state: 'error', message }))
       return
     }
     setDownloadError(message)
@@ -928,6 +985,12 @@ function configureUpdater() {
       setUpdateState({ state: 'error', message: '更新检查异常终止。' })
     })
   }, 7000)
+
+  // 常驻托盘的应用不会自己重启，只在启动查一次等于几天都不知道有新版
+  setInterval(() => {
+    if (updateState.state === 'downloading' || updateState.state === 'downloaded') return
+    runUpdateCheck().catch(() => {})
+  }, UPDATE_PERIODIC_CHECK_MS)
 }
 
 function setDownloadError(message) {
@@ -1203,6 +1266,10 @@ ipcMain.handle('desktop:ingest', async (_event, force) => {
   return result
 })
 
+// 渲染进程重载（崩溃后一键重新加载 / 手动刷新）时，主进程的更新状态还在，
+// 但推送早就发完了 —— 必须给一个拉取入口，否则界面会退回「尚未检查」。
+ipcMain.handle('desktop:get-update-state', () => ({ ...updateState }))
+
 ipcMain.handle('desktop:check-for-updates', async () => {
   try {
     // 界面点按钮一律强制：忽略节流与「已跳过」
@@ -1212,7 +1279,45 @@ ipcMain.handle('desktop:check-for-updates', async () => {
   }
 })
 
+ipcMain.handle('desktop:download-update', async () => {
+  if (updateState.state !== 'available') {
+    return { ok: false, message: '当前没有待下载的更新。' }
+  }
+  try {
+    setUpdateState({ state: 'downloading', percent: 0 })
+    await autoUpdater.downloadUpdate()
+    return { ok: true, version: updateState.version }
+  } catch (error) {
+    const message = String(error?.message ?? '下载失败').slice(0, 160)
+    appendLog('main.log', { scope: 'download-update', message })
+    // 换源续传由 error 事件负责；这里只兜住「没有任何事件回来」时不要死在下载中
+    if (updateState.state === 'downloading') setUpdateState({ state: 'available', percent: 0 })
+    return { ok: false, message }
+  }
+})
+
+ipcMain.handle('desktop:set-update-auto-download', (_event, enabled) => {
+  const autoDownload = enabled === true
+  const prefs = saveUpdatePrefs({ autoDownload })
+  autoUpdater.autoDownload = autoDownload
+  // 说明文案要跟着偏好走：切回手动时继续显示「正在下载」就是假信息
+  const patch = { autoDownload }
+  if (updateState.state === 'available' && updateState.version) {
+    patch.message = availableMessage(updateState.version, updateState.source, autoDownload)
+  }
+  setUpdateState(patch)
+  // 打开自动下载时，若已有待装的新版本就立刻补一次下载
+  if (autoDownload && updateState.state === 'available') {
+    setUpdateState({ state: 'downloading', percent: 0 })
+    Promise.resolve(autoUpdater.downloadUpdate()).catch(() => {
+      if (updateState.state === 'downloading') setUpdateState({ state: 'available', percent: 0 })
+    })
+  }
+  return { ok: true, autoDownload: prefs.autoDownload }
+})
+
 ipcMain.handle('desktop:install-update', async () => {
+  // 这里刻意不吃 CHRONICLE_DEV_UPDATE 这个口子：开发模式跑 quitAndInstall 会真的往本机装一份
   if (!app.isPackaged) {
     return { ok: false, message: '只有安装后的正式版本可以安装更新。' }
   }
@@ -1220,8 +1325,12 @@ ipcMain.handle('desktop:install-update', async () => {
     return { ok: false, message: '更新尚未下载完成。' }
   }
   try {
-    // 确认由界面用统一弹窗完成（合规要求），这里只负责执行，不再弹原生对话框
-    autoUpdater.quitAndInstall(false, true)
+    appendLog('main.log', { scope: 'install-update', version: updateState.version })
+    setUpdateState({ message: `正在安装 v${updateState.version}，应用会自动重启。` })
+    // isSilent 才会带 /S。oneClick:false 的向导式安装包不静默就会弹出「下一步」，
+    // 与确认框里「安装过程会自动完成」的承诺相反（同款静默做法见磁盘清理助手 main.js:183）。
+    // setImmediate 让本条 IPC 的回包先发出，再退出进程。
+    setImmediate(() => autoUpdater.quitAndInstall(true, true))
     return { ok: true }
   } catch (error) {
     return { ok: false, message: error?.message || '安装更新失败。' }
@@ -1230,11 +1339,9 @@ ipcMain.handle('desktop:install-update', async () => {
 
 ipcMain.handle('desktop:set-skipped-update', (_event, version) => {
   const skippedVersion = version ? String(version) : ''
-  try {
-    fs.writeFileSync(updatePrefsFile(), JSON.stringify({ skippedVersion }), 'utf8')
-  } catch {
-    // 忽略写入失败
-  }
+  // 必须整份合并写回：直接写 { skippedVersion } 会把 autoDownload 偏好清掉
+  saveUpdatePrefs({ skippedVersion })
+  if (skippedVersion) pendingUpdateVersion = ''
   setUpdateState({
     skippedVersion,
     state: skippedVersion ? 'not-available' : 'idle',

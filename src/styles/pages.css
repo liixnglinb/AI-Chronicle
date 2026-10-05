@@ -1057,6 +1057,19 @@
   font-weight: 500;
 }
 
+/* 目录信息关闭时「所属项目」整列不渲染，轨道数同步减一档，否则列会整体错位 */
+.desk-artifact-table-card.is-no-proj .desk-art-table-head,
+.desk-artifact-table-card.is-no-proj .desk-art-row {
+  grid-template-columns: minmax(0, 2.2fr) minmax(0, 0.9fr) minmax(0, 1.4fr) 92px 76px 62px;
+}
+
+@media (max-width: 1180px) {
+  .desk-artifact-table-card.is-no-proj .desk-art-table-head,
+  .desk-artifact-table-card.is-no-proj .desk-art-row {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1.3fr) 86px 70px 58px;
+  }
+}
+
 .desk-art-row {
   border-bottom: 1px solid var(--vr-border-hairline);
   width: 100%;

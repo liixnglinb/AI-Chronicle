@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { AppShell } from './components/AppShell'
+import { EmptyState } from './components/EmptyState'
 import { CommandPalette } from './components/CommandPalette'
 import { DataStateBanner } from './components/DataStateBanner'
 import { ToastStack } from './components/ToastStack'
@@ -61,7 +62,7 @@ function getInitialView(): ViewId {
  * 命令面板与今日工作台共用同一个实现，保证两处文案与落盘文件名完全一致。
  */
 function useDailyReportExport(pushToast: (toast: Omit<ToastMessage, 'id'>) => void) {
-  const { data } = useChronicle()
+  const { data, settings } = useChronicle()
   return useCallback(async () => {
     if (!data) return
     const todayKey = dayKeyOf(Date.now())
@@ -74,7 +75,12 @@ function useDailyReportExport(pushToast: (toast: Omit<ToastMessage, 'id'>) => vo
       })
       return
     }
-    const md = buildDailyReport([...sessions].reverse())
+    // 日报的归组主键与界面一致：目录关着时不要导出一份满是目录的报告
+    const md = buildDailyReport(
+      [...sessions].reverse(),
+      Date.now(),
+      settings.showProjectPaths ? 'path' : 'tool',
+    )
     const fileName = `AI工作日报-${todayKey}.md`
     const result = await saveText(fileName, md)
     pushToast(
@@ -82,11 +88,12 @@ function useDailyReportExport(pushToast: (toast: Omit<ToastMessage, 'id'>) => vo
         ? { tone: 'success', title: '日报导出成功', message: `文件已写入：${fileName}` }
         : { tone: 'warning', title: '导出未完成', message: result.message ?? '请重试' },
     )
-  }, [data, pushToast])
+  }, [data, settings.showProjectPaths, pushToast])
 }
 
 function Workspace() {
   const [activeView, setActiveView] = useState<ViewId>(getInitialView)
+  const { settings, update } = useChronicle()
   const [theme, setTheme] = useState<ThemeName>(getInitialTheme)
   const [commandOpen, setCommandOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -104,6 +111,22 @@ function Workspace() {
   }, [])
 
   const exportDailyReport = useDailyReportExport(pushToast)
+
+  // 更新包就绪：主进程的 notify() 在窗口聚焦时主动不打扰，于是「下载完成」在前台完全无声，
+  // 这里补一条应用内提示，保证两条路径下用户都知道包已就绪。
+  const lastUpdateState = useRef('')
+  useEffect(() => {
+    const state = update?.state ?? ''
+    const previous = lastUpdateState.current
+    lastUpdateState.current = state
+    if (state === 'downloaded' && previous !== 'downloaded' && update?.version) {
+      pushToast({
+        tone: 'success',
+        title: `v${update.version} 已下载完成`,
+        message: '点右下角的更新胶囊，或在设置中心安装并重启。',
+      })
+    }
+  }, [update, pushToast])
 
   useEffect(() => {
     applyTheme(theme)
@@ -213,6 +236,20 @@ function Workspace() {
       case 'history':
         return <HistoryPage searchQuery={searchQuery} onClearSearch={clearSearch} />
       case 'projects':
+        // 侧栏在关闭目录时不列这一项，深链 ?view=projects 仍可能进来，给出去处而不是空页
+        if (!settings.showProjectPaths) {
+          return (
+            <EmptyState
+              title="项目集按工作目录归组，当前已隐藏"
+              description="界面默认只显示「在哪个软件干了什么」。需要按目录查看时，在设置中心打开「显示目录路径」。"
+              actions={
+                <button onClick={() => navigate('settings')} className="desk-btn-secondary">
+                  前往设置中心
+                </button>
+              }
+            />
+          )
+        }
         return (
           <ProjectsPage searchQuery={searchQuery} onClearSearch={clearSearch} onToast={pushToast} />
         )

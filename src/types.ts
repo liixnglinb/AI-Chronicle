@@ -36,6 +36,8 @@ export type UpdateStatus = {
   source?: string
   /** 用户主动跳过的版本号，供界面提供「恢复」入口 */
   skippedVersion?: string
+  /** 是否自动下载更新包（安装包约 110 MB，默认关） */
+  autoDownload?: boolean
   probes?: Array<{ id: string; label: string; ok: boolean; ms: number }>
 }
 
