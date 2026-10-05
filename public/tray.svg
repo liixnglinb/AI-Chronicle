@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="AI 轨迹">
+  <title>AI 轨迹 · 托盘字形</title>
+  <desc>透明底的单色日志页字形，专供系统托盘使用：深色任务栏配浅色版，浅色任务栏配深色版。两套颜色由 scripts/generate-icon.mjs 互换生成。</desc>
+  <path fill="#FFFFFF" d="M13 5h25.5L57 23.5V53a6 6 0 0 1-6 6H13a6 6 0 0 1-6-6V11a6 6 0 0 1 6-6Z"/>
+  <path fill="#FFFFFF" fill-opacity=".55" d="M38.5 5 57 23.5H44.5a6 6 0 0 1-6-6V5Z"/>
+  <g fill="#0B0C0D">
+    <rect x="15" y="13" width="14" height="4" rx="2"/>
+    <rect x="15" y="20" width="25" height="2.6" rx="1.3" fill-opacity=".5"/>
+    <rect x="16.3" y="30" width="2.4" height="14" rx="1.2" fill-opacity=".55"/>
+    <circle cx="17.5" cy="29" r="3.6"/>
+    <circle cx="17.5" cy="38" r="2.6" fill-opacity=".7"/>
+    <circle cx="17.5" cy="46" r="2.6" fill-opacity=".55"/>
+    <rect x="24" y="26.5" width="20" height="4" rx="2"/>
+    <rect x="24" y="34" width="13" height="2.6" rx="1.3" fill-opacity=".55"/>
+    <rect x="24" y="41" width="17" height="4" rx="2" fill-opacity=".8"/>
+    <path d="m45.5 30 .95 2.55L49 33.5l-2.55.95L45.5 37l-.95-2.55L42 33.5l2.55-.95.95-2.55Z"/>
+  </g>
+</svg>
