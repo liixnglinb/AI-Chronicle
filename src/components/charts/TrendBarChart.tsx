@@ -1,3 +1,5 @@
+import { useLayoutEffect, useRef, useState } from 'react'
+
 export interface DailyPoint {
   /** MM-DD */
   day: string
@@ -16,22 +18,36 @@ interface TrendBarChartProps {
  * 不会像外部图表库那样弹出固定白底的浮层。
  */
 export function TrendBarChart({ data, height = 200 }: TrendBarChartProps) {
-  const maxHours = Math.max(...data.map((d) => d.hours), 1)
-  const chartWidth = 720
+  // viewBox 宽度跟随容器实测宽度：此前固定 720 + preserveAspectRatio="none"，
+  // 容器一宽整张 SVG 被横向拉伸，轴刻度文字实测变形 1.74 倍（5.5px → 9.5px）
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const [chartWidth, setChartWidth] = useState(720)
+
+  useLayoutEffect(() => {
+    const el = wrapRef.current
+    if (!el) return undefined
+    const update = () => setChartWidth(Math.max(320, Math.round(el.clientWidth)))
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+
   const chartHeight = height
+  const maxHours = Math.max(...data.map((d) => d.hours), 1)
   const plotBottom = chartHeight - 32
   const plotTop = 18
   const availableHeight = plotBottom - plotTop
   const colWidth = data.length ? (chartWidth - 56) / data.length : chartWidth - 56
 
   return (
-    <div className="desk-svg-wrap" style={{ height }}>
+    <div ref={wrapRef} className="desk-svg-wrap" style={{ height }}>
       <svg
         viewBox={`0 0 ${chartWidth} ${chartHeight}`}
         className="desk-native-chart"
         preserveAspectRatio="none"
         role="img"
-        aria-label="每日投入活跃时长趋势"
+        aria-label="每日会话时长合计趋势"
       >
         {/* 网格基线：三条足够读数，不做多余刻度 */}
         <line

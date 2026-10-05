@@ -456,6 +456,25 @@
   white-space: nowrap;
 }
 
+/* ---------- 触感反馈 ---------- */
+/* 按下时轻微下沉，模拟物理按压（ui-spec ⑤「按下位移 1px」此前只有文档没有实现）。
+   只做状态位移不做动画；reduced-motion 下 motion.css 会关掉过渡，位移瞬时完成仍是有效反馈。 */
+.desk-btn-primary:active,
+.desk-btn-secondary:active,
+.desk-btn-ghost:active,
+.desk-tool-btn:active:not(:disabled),
+.desk-nav-btn:active,
+.desk-icon-btn:active,
+.desk-icon-btn-ghost:active,
+.desk-pill-btn:active,
+.desk-set-tab:active,
+.desk-shortcut-pill:active,
+.desk-artifact-chip:active,
+.desk-tool-chip:active,
+.desk-switch:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
 .desk-panel {
   background: var(--vr-surface);
   border: 1px solid var(--vr-border-subtle);
@@ -500,15 +519,6 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--vr-sp-4);
-}
-
-.desk-hint {
-  font-size: var(--vr-text-xs);
-  color: var(--vr-text-faint);
-}
-
-.desk-muted {
-  color: var(--vr-text-muted);
 }
 
 .desk-faint {
@@ -654,27 +664,9 @@
   white-space: nowrap;
 }
 
-.desk-badge-success {
-  background: var(--vr-success-bg);
-  color: var(--vr-success);
-  border-color: transparent;
-}
-
-.desk-badge-warning {
-  background: var(--vr-warning-bg);
-  color: var(--vr-warning);
-  border-color: transparent;
-}
-
 .desk-badge-danger {
   background: var(--vr-danger-bg);
   color: var(--vr-danger);
-  border-color: transparent;
-}
-
-.desk-badge-info {
-  background: var(--vr-info-bg);
-  color: var(--vr-info);
   border-color: transparent;
 }
 
@@ -913,170 +905,6 @@
 .icon-button:disabled {
   opacity: 0.5;
   cursor: default;
-}
-
-/* ============================ 指标条 ============================ */
-.summary-strip {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: var(--vr-sp-3);
-}
-
-.summary-cell {
-  display: flex;
-  align-items: center;
-  gap: var(--vr-sp-3);
-  padding: var(--vr-sp-3) var(--vr-sp-4);
-  background: var(--vr-surface);
-  border: 1px solid var(--vr-border-subtle);
-  border-radius: var(--vr-radius-md);
-  box-shadow: var(--vr-shadow-flat);
-  min-width: 0;
-}
-
-.summary-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  flex: 0 0 auto;
-  border-radius: var(--vr-radius-sm);
-  background: var(--vr-bg-subtle);
-  color: var(--vr-text-muted);
-}
-
-.summary-cell-primary .summary-icon {
-  background: var(--vr-info-bg);
-  color: var(--vr-info);
-}
-
-.summary-cell-positive .summary-icon {
-  background: var(--vr-success-bg);
-  color: var(--vr-success);
-}
-
-.summary-cell-warning .summary-icon {
-  background: var(--vr-warning-bg);
-  color: var(--vr-warning);
-}
-
-.summary-cell-info .summary-icon {
-  background: var(--vr-info-bg);
-  color: var(--vr-info);
-}
-
-.summary-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-}
-
-.summary-copy small {
-  font-size: 10px;
-  color: var(--vr-text-faint);
-}
-
-.summary-copy strong {
-  font-family: var(--vr-font-mono);
-  font-size: var(--vr-text-lg);
-  font-weight: 600;
-  color: var(--vr-text-main);
-  font-variant-numeric: tabular-nums;
-  line-height: 1.2;
-}
-
-.summary-cell-compact .summary-copy strong {
-  font-size: var(--vr-text-sm);
-}
-
-.summary-copy span {
-  font-size: var(--vr-text-2xs);
-  color: var(--vr-text-faint);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* ============================ 徽标 ============================ */
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: var(--vr-text-2xs);
-  padding: 1px 6px;
-  border-radius: var(--vr-radius-xs);
-  background: var(--vr-bg-subtle);
-  border: 1px solid var(--vr-border-subtle);
-  color: var(--vr-text-muted);
-  white-space: nowrap;
-}
-
-.badge-primary {
-  background: var(--vr-info-bg);
-  color: var(--vr-info);
-  border-color: transparent;
-}
-.badge-success {
-  background: var(--vr-success-bg);
-  color: var(--vr-success);
-  border-color: transparent;
-}
-.badge-warning {
-  background: var(--vr-warning-bg);
-  color: var(--vr-warning);
-  border-color: transparent;
-}
-.badge-danger {
-  background: var(--vr-danger-bg);
-  color: var(--vr-danger);
-  border-color: transparent;
-}
-
-/* ============================ 工具色点 ============================ */
-.tool-dot,
-.tool-chip-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--tool-color, var(--vr-text-faint));
-  flex: 0 0 auto;
-  display: inline-block;
-}
-
-.tool-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.tool-chip-name {
-  color: var(--vr-text-muted);
-  font-size: var(--vr-text-2xs);
-}
-
-/* ============================ 长列表分页 ============================ */
-.load-more {
-  display: flex;
-  justify-content: center;
-  padding: var(--vr-sp-6) 0;
-}
-
-/* ============================ 进度条 ============================ */
-.progress {
-  height: 4px;
-  border-radius: var(--vr-radius-full);
-  background: var(--vr-surface-active);
-  overflow: hidden;
-  flex: 1;
-}
-
-.progress-bar {
-  height: 100%;
-  background: var(--vr-text-main);
-  border-radius: var(--vr-radius-full);
-  transition: width var(--vr-motion-dur-normal) linear;
 }
 
 /* ---------- 通用加载态 ---------- */

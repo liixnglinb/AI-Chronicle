@@ -185,9 +185,7 @@ body {
 /* 数字与路径一律等宽，保证纵向基线对齐 */
 code,
 kbd,
-pre,
-.font-mono,
-.desk-mono {
+pre {
   font-family: var(--vr-font-mono);
   font-variant-numeric: tabular-nums;
 }

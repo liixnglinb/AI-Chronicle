@@ -231,8 +231,10 @@ export function InsightsPage({ searchQuery, onToast }: InsightsPageProps) {
       <div className="desk-panel desk-chart-card desk-enter">
         <div className="desk-panel-title">
           <Clock size={14} />
-          <span>投入活跃时长趋势</span>
-          <small>单位：小时 / 天 · 悬停柱体查看精确值</small>
+          <span>每日会话时长合计</span>
+          <small>
+            单位：小时 / 天（各会话首尾跨度之和，并行与长挂会话会重复计入）· 悬停柱体查看精确值
+          </small>
         </div>
         <TrendBarChart data={dailyPoints} />
       </div>

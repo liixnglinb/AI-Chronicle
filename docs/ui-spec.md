@@ -111,14 +111,16 @@
 ### 图标
 
 - 统一使用 `lucide-react`（线性风格，`strokeWidth={2}`）
-- 尺寸**只允许四档**，取自 `src/lib/ui.ts` 的 `ICON_SIZE`：
+- 尺寸档位约定为四档（14 / 16 / 18 / 20），标签、导航、行内操作用 16，侧栏与卡片 18，空状态 20。
+  （历史说明：曾集中在 `src/lib/ui.ts` 的 `ICON_SIZE`，0.6.8 重建时该文件随死代码清除，
+  现由组件直接写字面量；要恢复集中管理时再建。）
 
-| 令牌           | 值  | 用途                   |
-| -------------- | --- | ---------------------- |
-| `ICON_SIZE.xs` | 14  | 标签、计数、快捷键提示 |
-| `ICON_SIZE.sm` | 16  | 按钮、导航、行内操作   |
-| `ICON_SIZE.md` | 18  | 侧栏导航、卡片操作     |
-| `ICON_SIZE.lg` | 20  | 空状态、页面级动作     |
+| 档位 | 值  | 用途                   |
+| ---- | --- | ---------------------- |
+| xs   | 14  | 标签、计数、快捷键提示 |
+| sm   | 16  | 按钮、导航、行内操作   |
+| md   | 18  | 侧栏导航、卡片操作     |
+| lg   | 20  | 空状态、页面级动作     |
 
 ### 圆角 / 边框 / 阴影
 
@@ -146,24 +148,22 @@
 
 ## ③ 组件体系
 
-| 组件                                     | 文件                            | 说明                                                                                         |
-| ---------------------------------------- | ------------------------------- | -------------------------------------------------------------------------------------------- |
-| `Button`                                 | `components/Button.tsx`         | `variant` = primary / secondary / ghost / danger；`size` = sm / md / lg；`loading`；`square` |
-| `IconButton`                             | `components/Button.tsx`         | `label` 必填（同时作为 `aria-label` 与 `title`）；`size` = sm / md                           |
-| `Badge`                                  | `components/Badge.tsx`          | `tone` = neutral / primary / success / warning / danger                                      |
-| `Field` / `Input` / `Select`             | `components/Field.tsx`          | 表单项容器（label / hint / error）+ 输入框 + 下拉                                            |
-| `Switch`                                 | `components/Switch.tsx`         | 布尔设置项，`role="switch"`                                                                  |
-| `Modal` / `ConfirmDialog`                | `components/Modal.tsx`          | 通用弹窗 + 危险操作二次确认                                                                  |
-| `EmptyState` / `DesktopOnlyPage`         | `components/EmptyState.tsx`     | 空状态与浏览器预览占位                                                                       |
-| `Skeleton*`                              | `components/Skeleton.tsx`       | 骨架屏（`Skeleton` / `SkeletonSummary` / `SkeletonList` / `SkeletonPage`）                   |
-| `Progress` / `LoadMore`                  | `components/Progress.tsx`       | 进度条 / 长列表分页                                                                          |
-| `Toast`                                  | `components/ToastStack.tsx`     | 轻提示，成功 / 信息 / 警告三态                                                               |
-| `CommandPalette`                         | `components/CommandPalette.tsx` | 命令面板（`⌘/Ctrl + K`）                                                                     |
-| `ErrorBoundary`                          | `components/ErrorBoundary.tsx`  | 渲染异常兜底                                                                                 |
-| `PageHeader`                             | `components/PageHeader.tsx`     | 页头（kicker + 标题 + 操作区）                                                               |
-| `SummaryStrip`                           | `components/SummaryStrip.tsx`   | 指标条                                                                                       |
-| `ChartTooltip`                           | `components/ChartTooltip.tsx`   | Recharts 主题化提示框                                                                        |
-| `SessionRow` / `ToolDot` / `UpdateBadge` | 同名文件                        | 会话行 / 软件色点 / 常驻更新框                                                               |
+| 组件                             | 文件                            | 说明                                                                                         |
+| -------------------------------- | ------------------------------- | -------------------------------------------------------------------------------------------- |
+| `Button`                         | `components/Button.tsx`         | `variant` = primary / secondary / ghost / danger；`size` = sm / md / lg；`loading`；`square` |
+| `IconButton`                     | `components/Button.tsx`         | `label` 必填（同时作为 `aria-label` 与 `title`）；`size` = sm / md                           |
+| `Badge`                          | `components/Badge.tsx`          | `tone` = neutral / primary / success / warning / danger                                      |
+| `Field` / `Input` / `Select`     | `components/Field.tsx`          | 表单项容器（label / hint / error）+ 输入框 + 下拉                                            |
+| `Switch`                         | `components/Switch.tsx`         | 布尔设置项，`role="switch"`                                                                  |
+| `Modal` / `ConfirmDialog`        | `components/Modal.tsx`          | 通用弹窗 + 危险操作二次确认                                                                  |
+| `EmptyState` / `DesktopOnlyPage` | `components/EmptyState.tsx`     | 空状态与浏览器预览占位                                                                       |
+| `Skeleton*`                      | `components/Skeleton.tsx`       | 骨架屏（`Skeleton` / `SkeletonSummary` / `SkeletonList` / `SkeletonPage`）                   |
+| `Progress` / `LoadMore`          | `components/Progress.tsx`       | 进度条 / 长列表分页                                                                          |
+| `Toast`                          | `components/ToastStack.tsx`     | 轻提示，成功 / 信息 / 警告三态                                                               |
+| `CommandPalette`                 | `components/CommandPalette.tsx` | 命令面板（`⌘/Ctrl + K`）                                                                     |
+| `ErrorBoundary`                  | `components/ErrorBoundary.tsx`  | 渲染异常兜底                                                                                 |
+| `ToolMark`                       | `components/ToolMark.tsx`       | 软件品牌图（真实图标，识别不了时自动带名字，见 ⑦）                                           |
+| `UpdateBadge`                    | `components/UpdateBadge.tsx`    | 常驻更新框（进度环 + 就绪态）                                                                |
 
 ### 不适用项（本软件无对应场景，故不提供）
 
@@ -282,11 +282,11 @@
 
 - 长标题 / 长路径 / 长模型名统一 ellipsis + `title`
 - 指标数值用 `font-variant-numeric: tabular-nums` 防止跳动
-- 长数值（时间区间、体积）用 `SummaryStrip` 的 `compact` 变体降一档字号
+- 长数值（时间区间、体积）随所在卡片降一档字号，数字用 `tabular-nums` 防跳动
 
 ### 一致性
 
-同一功能在不同页面必须一致：页头用 `PageHeader`、指标用 `SummaryStrip`、空状态用 `EmptyState`、计数用 `Badge`、异步操作按钮用 `Button loading`。
+同一功能在不同页面必须一致：空状态用 `EmptyState`、布尔设置用 `Switch`、异步操作按钮用 `Button loading`、软件标识用 `ToolMark`、轻提示用 `ToastStack`。
 
 ---
 

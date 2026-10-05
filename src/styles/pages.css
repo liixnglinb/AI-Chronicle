@@ -305,13 +305,6 @@
   color: var(--vr-text-main);
 }
 
-.desk-tool-chip-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  flex: 0 0 auto;
-}
-
 .desk-tool-chip-num {
   color: var(--vr-text-faint);
   font-size: 10px;
@@ -457,13 +450,6 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.desk-tool-badge-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  flex: 0 0 auto;
 }
 
 .desk-row-main {
@@ -1170,13 +1156,6 @@
   white-space: nowrap;
 }
 
-.desk-src-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  flex: 0 0 auto;
-}
-
 .desk-col-time,
 .desk-col-size {
   color: var(--vr-text-faint);
@@ -1409,10 +1388,6 @@
 .desk-pipeline-step.is-active {
   color: var(--vr-text-main);
   font-weight: 600;
-}
-
-.desk-pipeline-step.is-failed {
-  color: var(--vr-danger);
 }
 
 .desk-pipeline-sep {
