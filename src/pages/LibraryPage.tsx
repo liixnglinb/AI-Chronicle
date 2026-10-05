@@ -17,6 +17,7 @@ import { useIncrementalList } from '../lib/useIncrementalList'
 import { openLocalPath } from '../lib/desktop'
 import { EmptyState, DesktopOnlyPage } from '../components/EmptyState'
 import { SkeletonPage } from '../components/Skeleton'
+import { ToolMark } from '../components/ToolMark'
 import { classNames } from '../lib/utils'
 import type { ArtifactRecord } from '../types'
 
@@ -28,6 +29,7 @@ interface LibraryPageProps {
 type KindCategory = 'all' | 'code' | 'doc' | 'image' | 'video' | 'data' | 'other'
 
 interface FlatArtifact extends ArtifactRecord {
+  tool: string
   toolName: string
   toolColor: string
   sessionTitle: string
@@ -156,6 +158,7 @@ export function LibraryPage({ searchQuery, onClearSearch }: LibraryPageProps) {
       for (const art of s.artifacts ?? []) {
         list.push({
           ...art,
+          tool: s.tool,
           toolName: s.toolName,
           toolColor: s.toolColor,
           sessionTitle: s.title,
@@ -314,8 +317,7 @@ export function LibraryPage({ searchQuery, onClearSearch }: LibraryPageProps) {
 
                 <span className="desk-col-src">
                   <span className="desk-src-tag" style={{ borderColor: art.toolColor }}>
-                    <span className="desk-src-dot" style={{ backgroundColor: art.toolColor }} />
-                    <span>{art.toolName}</span>
+                    <ToolMark tool={art.tool} name={art.toolName} color={art.toolColor} size={15} />
                   </span>
                 </span>
 

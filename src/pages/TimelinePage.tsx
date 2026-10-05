@@ -5,6 +5,7 @@ import { dayKeyOf, formatDuration, formatTimeRange, sessionTouchesDay } from '..
 import { projectDisplayName } from '../lib/paths'
 import { EmptyState, DesktopOnlyPage } from '../components/EmptyState'
 import { SkeletonPage } from '../components/Skeleton'
+import { ToolMark } from '../components/ToolMark'
 import { classNames } from '../lib/utils'
 
 interface TimelinePageProps {
@@ -274,7 +275,7 @@ export function TimelinePage({ searchQuery }: TimelinePageProps) {
                 <div className="desk-flow-card-head">
                   <span className="desk-flow-head-left">
                     <span className="desk-flow-tool-name" style={{ color: s.toolColor }}>
-                      {s.toolName}
+                      <ToolMark tool={s.tool} name={s.toolName} color={s.toolColor} size={16} />
                     </span>
                     <span className="desk-flow-time-range">{formatTimeRange(s.start, s.end)}</span>
                   </span>
@@ -285,7 +286,9 @@ export function TimelinePage({ searchQuery }: TimelinePageProps) {
                   )}
                 </div>
 
-                <h4 className="desk-flow-title">{s.title || '（无交互意图记录）'}</h4>
+                <h4 className="desk-flow-title" title={`会话首条指令：${s.title}`}>
+                  {s.title || '（无交互意图记录）'}
+                </h4>
 
                 <div className="desk-flow-foot-meta">
                   <span>轮次 {s.turns}</span>

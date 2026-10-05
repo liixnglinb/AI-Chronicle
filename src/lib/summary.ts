@@ -6,6 +6,8 @@ export interface WorkSummaryItem {
   key: string
   project: string
   path: string
+  /** 该组首个会话的软件色（软件档就是它自己的品牌色，目录档取组内第一个软件） */
+  color: string
   tools: string[]
   count: number
   turns: number
@@ -13,7 +15,8 @@ export interface WorkSummaryItem {
   artifactNames: string[]
   first: number | null
   last: number | null
-  focus: string
+  /** 只写可核对的事实：改了哪些文件；没有文件改动就直说 */
+  digest: string
 }
 
 /**
@@ -53,34 +56,31 @@ export function buildWorkSummary(
   sessions: SessionRecord[],
   groupBy: SummaryGroupBy = 'path',
 ): WorkSummaryItem[] {
-  const groups = new Map<string, { item: WorkSummaryItem; kinds: Set<string> }>()
+  const groups = new Map<string, WorkSummaryItem>()
 
   for (const s of sessions) {
     const path = s.projectPath || s.project || '(未知目录)'
     const key = groupBy === 'tool' ? s.tool || s.toolName : path
-    let group = groups.get(key)
-    if (!group) {
-      group = {
-        item: {
-          key,
-          // 按软件归组时标题就是软件名，path 留空：界面与日报都没有目录可显示
-          project: groupBy === 'tool' ? s.toolName : s.project || basenameOf(path) || '(未知项目)',
-          path: groupBy === 'tool' ? '' : path,
-          tools: [],
-          count: 0,
-          turns: 0,
-          artifactCount: 0,
-          artifactNames: [],
-          first: null,
-          last: null,
-          focus: '',
-        },
-        kinds: new Set<string>(),
+    let item = groups.get(key)
+    if (!item) {
+      item = {
+        key,
+        // 按软件归组时标题就是软件名，path 留空：界面与日报都没有目录可显示
+        project: groupBy === 'tool' ? s.toolName : s.project || basenameOf(path) || '(未知项目)',
+        path: groupBy === 'tool' ? '' : path,
+        color: s.toolColor,
+        tools: [],
+        count: 0,
+        turns: 0,
+        artifactCount: 0,
+        artifactNames: [],
+        first: null,
+        last: null,
+        digest: '',
       }
-      groups.set(key, group)
+      groups.set(key, item)
     }
 
-    const { item } = group
     if (!item.tools.includes(s.toolName)) item.tools.push(s.toolName)
     item.count += 1
     item.turns += s.turns
@@ -91,19 +91,18 @@ export function buildWorkSummary(
     for (const artifact of s.artifacts ?? []) {
       item.artifactCount += 1
       if (!item.artifactNames.includes(artifact.name)) item.artifactNames.push(artifact.name)
-      const kind = artifactKind(artifact.name)
-      if (kind) group.kinds.add(kind)
     }
   }
 
   return [...groups.values()]
-    .map(({ item, kinds }) => ({
+    .map((item) => ({
       ...item,
-      focus: kinds.size
-        ? [...kinds].slice(0, 3).join('、')
-        : item.turns > 3
-          ? '方案讨论与问题排查'
-          : '轻量协作与信息整理',
+      // 早期这里按「改动文件的扩展名」推一句「界面与代码 / 轻量协作与信息整理」之类的话，
+      // 那是猜的、经常不对（一次没落盘的长讨论会被写成「轻量协作」）。现在只写查得到的事实。
+      digest: item.artifactNames.length
+        ? `改了 ${item.artifactCount} 个文件：${item.artifactNames.slice(0, 3).join('、')}` +
+          (item.artifactNames.length > 3 ? ` 等 ${item.artifactNames.length} 个` : '')
+        : '未检测到文件改动',
     }))
     .sort((a, b) => (b.last || 0) - (a.last || 0))
 }
@@ -241,7 +240,7 @@ export function buildDailyReport(
     lines.push('')
     // 产出说明紧跟项目标题，避免挂在最后一条会话下面被误读成该会话的产物
     if (item.artifactCount) {
-      lines.push(`产出 ${item.artifactCount} 个文件，主要涉及${item.focus}`)
+      lines.push(item.digest)
       lines.push('')
     }
     for (const s of bucket.slice(0, 12)) {

@@ -81,7 +81,7 @@ describe('buildWorkSummary', () => {
     expect(result[0].artifactNames).toEqual(['index.tsx', 'readme.md'])
   })
 
-  it('依据产出文件类型推导工作焦点', () => {
+  it('摘要只写可核对的事实：改了哪些文件', () => {
     const result = buildWorkSummary([
       session({
         artifacts: [
@@ -90,12 +90,26 @@ describe('buildWorkSummary', () => {
         ],
       }),
     ])
-    expect(result[0].focus).toBe('界面与代码、配置与数据')
+    expect(result[0].digest).toBe('改了 2 个文件：App.tsx、config.json')
   })
 
-  it('没有产出时按轮次给出兜底描述', () => {
-    expect(buildWorkSummary([session({ turns: 10 })])[0].focus).toBe('方案讨论与问题排查')
-    expect(buildWorkSummary([session({ turns: 1 })])[0].focus).toBe('轻量协作与信息整理')
+  it('超过 3 个文件只列前 3 个并给出总数', () => {
+    const result = buildWorkSummary([
+      session({
+        artifacts: ['a.ts', 'b.ts', 'c.ts', 'd.ts', 'e.ts'].map((n, i) => ({
+          name: n,
+          path: `p/${n}`,
+          size: 1,
+          mtime: i,
+        })),
+      }),
+    ])
+    expect(result[0].digest).toBe('改了 5 个文件：a.ts、b.ts、c.ts 等 5 个')
+  })
+
+  it('没有文件改动时直说，不再按轮次编一句「轻量协作」', () => {
+    expect(buildWorkSummary([session({ turns: 10 })])[0].digest).toBe('未检测到文件改动')
+    expect(buildWorkSummary([session({ turns: 1 })])[0].digest).toBe('未检测到文件改动')
   })
 
   it('按最近活动时间倒序排列', () => {

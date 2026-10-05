@@ -13,6 +13,7 @@ import { TrendBarChart, type DailyPoint } from '../components/charts/TrendBarCha
 import { ToolSplitTrack, type ToolRatio } from '../components/charts/ToolSplitTrack'
 import { EmptyState, DesktopOnlyPage } from '../components/EmptyState'
 import { SkeletonPage } from '../components/Skeleton'
+import { ToolMark } from '../components/ToolMark'
 import { openLocalPath } from '../lib/desktop'
 import { classNames } from '../lib/utils'
 import type { ToastMessage } from '../types'
@@ -256,7 +257,18 @@ export function InsightsPage({ searchQuery, onToast }: InsightsPageProps) {
         <div className="desk-scan-list">
           {projectStats.map((project) => (
             <div className="desk-scan-row" key={project.key}>
-              <strong title={showPaths ? project.path : undefined}>{project.label}</strong>
+              <strong title={showPaths ? project.path : undefined}>
+                {showPaths ? (
+                  project.label
+                ) : (
+                  <ToolMark
+                    tool={project.key}
+                    name={project.label}
+                    color={project.color}
+                    size={16}
+                  />
+                )}
+              </strong>
               <span>{project.turns} 轮</span>
               <span>{project.artifacts} 产出</span>
               <span>{formatDuration(project.minutes) || '跨度不足 1 分钟'}</span>

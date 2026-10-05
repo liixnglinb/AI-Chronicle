@@ -14,6 +14,7 @@ import { projectDisplayName } from '../lib/paths'
 import { openLocalPath, saveText } from '../lib/desktop'
 import { EmptyState, DesktopOnlyPage } from '../components/EmptyState'
 import { SkeletonPage } from '../components/Skeleton'
+import { ToolMark } from '../components/ToolMark'
 import type { ToastMessage } from '../types'
 
 interface TodayPageProps {
@@ -55,7 +56,7 @@ export function TodayPage({ searchQuery, onToast }: TodayPageProps) {
       (w) =>
         w.project.toLowerCase().includes(q) ||
         w.path.toLowerCase().includes(q) ||
-        w.focus.toLowerCase().includes(q) ||
+        w.digest.toLowerCase().includes(q) ||
         w.tools.some((t) => t.toLowerCase().includes(q)),
     )
   }, [workSummary, searchQuery])
@@ -68,6 +69,7 @@ export function TodayPage({ searchQuery, onToast }: TodayPageProps) {
       path: string
       mtime: number
       project: string
+      tool: string
       toolName: string
       toolColor: string
     }> = []
@@ -76,6 +78,7 @@ export function TodayPage({ searchQuery, onToast }: TodayPageProps) {
       path: string
       mtime: number
       project: string
+      tool: string
       toolName: string
       toolColor: string
     }> = []
@@ -87,6 +90,7 @@ export function TodayPage({ searchQuery, onToast }: TodayPageProps) {
           mtime: a.mtime,
           // 目录隐藏时不带 project，胶囊改显示「哪个软件改的」
           project: showPaths ? projectDisplayName(s.projectPath || s.project) : '',
+          tool: s.tool,
           toolName: s.toolName,
           toolColor: s.toolColor,
         })
@@ -244,11 +248,9 @@ export function TodayPage({ searchQuery, onToast }: TodayPageProps) {
                 onClick={() => void openLocalPath(art.path)}
                 title={showPaths ? art.path : art.name}
               >
-                <FileCode size={13} style={{ color: art.toolColor }} />
+                <ToolMark tool={art.tool} name={art.toolName} color={art.toolColor} size={14} />
                 <span className="desk-chip-name">{art.name}</span>
-                <span className="desk-chip-proj">
-                  {showPaths ? `(${art.project})` : art.toolName}
-                </span>
+                {showPaths && <span className="desk-chip-proj">({art.project})</span>}
                 <ExternalLink size={10} className="desk-chip-open" />
               </button>
             ))}
@@ -265,7 +267,17 @@ export function TodayPage({ searchQuery, onToast }: TodayPageProps) {
             <div key={item.key} className="desk-panel desk-summary-card desk-enter">
               <div className="desk-summary-card-head">
                 <div className="desk-summary-id">
-                  <span className="desk-summary-proj">{display}</span>
+                  {showPaths ? (
+                    <span className="desk-summary-proj">{display}</span>
+                  ) : (
+                    <ToolMark
+                      tool={item.key}
+                      name={item.project}
+                      color={item.color}
+                      size={22}
+                      className="desk-summary-proj"
+                    />
+                  )}
                   {showPaths && (
                     <span className="desk-summary-path" title={item.path}>
                       {item.path}
@@ -282,8 +294,8 @@ export function TodayPage({ searchQuery, onToast }: TodayPageProps) {
               </div>
 
               <div className="desk-summary-focus">
-                <strong>核心事项：</strong>
-                <span>{item.focus}</span>
+                <strong>实际改动：</strong>
+                <span>{item.digest}</span>
                 {item.first !== null && item.last !== null && (
                   <span className="desk-summary-window">
                     {' '}
@@ -292,20 +304,17 @@ export function TodayPage({ searchQuery, onToast }: TodayPageProps) {
                 )}
               </div>
 
-              <div className="desk-summary-tools">
-                {/* 软件档的标题已经是软件名，再列一遍工具标签是重复信息 */}
-                {showPaths &&
-                  item.tools.map((t) => (
+              {/* 目录档才需要列出组内有哪几个软件；软件档的标题就是软件本身。
+                  「代表产出」不再单列 —— 上面的实际改动已经列了文件名。 */}
+              {showPaths && (
+                <div className="desk-summary-tools">
+                  {item.tools.map((t) => (
                     <span key={t} className="desk-tool-tag">
                       {t}
                     </span>
                   ))}
-                {item.artifactNames.length > 0 && (
-                  <span className="desk-tool-tag">
-                    代表产出：{item.artifactNames.slice(0, 3).join('、')}
-                  </span>
-                )}
-              </div>
+                </div>
+              )}
             </div>
           )
         })}

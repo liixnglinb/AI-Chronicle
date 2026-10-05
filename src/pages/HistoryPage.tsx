@@ -12,6 +12,7 @@ import { projectDisplayName } from '../lib/paths'
 import { useIncrementalList } from '../lib/useIncrementalList'
 import { useViewState, isFilter } from '../lib/useViewState'
 import { openLocalPath } from '../lib/desktop'
+import { ToolMark } from '../components/ToolMark'
 import { EmptyState, DesktopOnlyPage } from '../components/EmptyState'
 import { SkeletonPage } from '../components/Skeleton'
 import { classNames } from '../lib/utils'
@@ -188,8 +189,7 @@ export function HistoryPage({ searchQuery, onClearSearch }: HistoryPageProps) {
                 onClick={() => setToolFilter(t.id)}
                 aria-pressed={toolFilter === t.id}
               >
-                <span className="desk-tool-chip-dot" style={{ backgroundColor: t.color }} />
-                <span>{t.name}</span>
+                <ToolMark tool={t.id} name={t.name} color={t.color} size={14} forceName />
                 <small className="desk-tool-chip-num">{t.count}</small>
               </button>
             ))}
@@ -246,16 +246,12 @@ export function HistoryPage({ searchQuery, onClearSearch }: HistoryPageProps) {
 
                       <span className="desk-row-tool">
                         <span className="desk-tool-badge" style={{ borderColor: s.toolColor }}>
-                          <span
-                            className="desk-tool-badge-dot"
-                            style={{ backgroundColor: s.toolColor }}
-                          />
-                          <span>{s.toolName}</span>
+                          <ToolMark tool={s.tool} name={s.toolName} color={s.toolColor} size={15} />
                         </span>
                       </span>
 
                       <span className="desk-row-main">
-                        <span className="desk-row-title" title={s.title}>
+                        <span className="desk-row-title" title={`会话首条指令：${s.title}`}>
                           {s.title || '（空白会话标题）'}
                         </span>
                         <span className="desk-row-meta">

@@ -423,6 +423,39 @@
 }
 
 /* ============================ 共享原语 ============================ */
+
+/* 软件标识：品牌图 + （必要时）名字。图本身按 1x/2x 清晰显示，不做圆角裁切，
+   因为多数程序图标自带形状边界。 */
+.desk-tool-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--vr-sp-2);
+  min-width: 0;
+}
+
+.desk-tool-mark-img {
+  display: block;
+  flex: 0 0 auto;
+  object-fit: contain;
+}
+
+.desk-tool-mark-mono {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  border-radius: var(--vr-radius-xs);
+  font-weight: 700;
+  line-height: 1;
+}
+
+.desk-tool-mark-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .desk-panel {
   background: var(--vr-surface);
   border: 1px solid var(--vr-border-subtle);

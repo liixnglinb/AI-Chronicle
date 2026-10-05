@@ -5,6 +5,7 @@ import { useChronicle } from '../lib/store'
 import { formatTimeRange } from '../lib/format'
 import { useFocusTrap } from '../lib/useFocusTrap'
 import { classNames } from '../lib/utils'
+import { ToolMark } from './ToolMark'
 import type { ToastMessage, ViewId } from '../types'
 
 interface CommandPaletteProps {
@@ -252,9 +253,16 @@ export function CommandPalette({
                         {session.title || '（未命名会话）'}
                       </strong>
                       <small className="desk-cmd-item-hint">
-                        {/* 目录默认不进提示行；软件名 + 时间段足以定位是哪一次会话 */}
+                        {/* 目录默认不进提示行；软件用品牌图标识（识别不了的那几款自动带名字） */}
                         {showPaths && `${session.project} · `}
-                        {session.toolName} · {formatTimeRange(session.start, session.end)}
+                        <ToolMark
+                          tool={session.tool}
+                          name={session.toolName}
+                          color={session.toolColor}
+                          size={13}
+                        />
+                        {' · '}
+                        {formatTimeRange(session.start, session.end)}
                       </small>
                     </span>
                     {selectedIndex === itemIndex && (
