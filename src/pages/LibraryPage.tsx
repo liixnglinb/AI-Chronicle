@@ -14,16 +14,17 @@ import { useChronicle } from '../lib/store'
 import { formatClock, shortenPath } from '../lib/format'
 import { projectDisplayName } from '../lib/paths'
 import { useIncrementalList } from '../lib/useIncrementalList'
-import { openLocalPath } from '../lib/desktop'
+import { openLocalWithToast } from '../lib/desktop'
 import { EmptyState, DesktopOnlyPage } from '../components/EmptyState'
 import { SkeletonPage } from '../components/Skeleton'
 import { ToolMark } from '../components/ToolMark'
 import { classNames } from '../lib/utils'
-import type { ArtifactRecord } from '../types'
+import type { ArtifactRecord, ToastMessage } from '../types'
 
 interface LibraryPageProps {
   searchQuery: string
   onClearSearch: () => void
+  onToast: (toast: Omit<ToastMessage, 'id'>) => void
 }
 
 type KindCategory = 'all' | 'code' | 'doc' | 'image' | 'video' | 'data' | 'other'
@@ -136,7 +137,7 @@ const KIND_META: Record<KindCategory, { label: string; Icon: typeof File; tone: 
  * 每一行都标明「哪个项目、哪个软件、哪个会话」产生的这个文件，
  * 并提供「打开文件」与「在文件夹中定位」双入口。
  */
-export function LibraryPage({ searchQuery, onClearSearch }: LibraryPageProps) {
+export function LibraryPage({ searchQuery, onClearSearch, onToast }: LibraryPageProps) {
   const { data, loading, isDesktop, settings } = useChronicle()
   // 关闭时整列「所属项目」与相对路径都不渲染，表格轨道数同步收窄（.is-no-proj）
   const showPaths = settings.showProjectPaths
@@ -211,14 +212,14 @@ export function LibraryPage({ searchQuery, onClearSearch }: LibraryPageProps) {
   })
 
   async function openArtifact(path: string) {
-    await openLocalPath(path)
+    await openLocalWithToast(onToast, path)
   }
 
   async function revealInFolder(path: string) {
     // 在文件夹中定位：取所在目录交给系统文件管理器
     const idx = Math.max(path.lastIndexOf('\\'), path.lastIndexOf('/'))
     const dir = idx > 0 ? path.slice(0, idx) : path
-    await openLocalPath(dir)
+    await openLocalWithToast(onToast, dir)
   }
 
   if (!isDesktop) {
@@ -284,7 +285,7 @@ export function LibraryPage({ searchQuery, onClearSearch }: LibraryPageProps) {
         <div className="desk-art-table-head">
           <span className="desk-col-file">{showPaths ? '文件名 / 相对路径' : '文件名'}</span>
           {showPaths && <span>所属项目</span>}
-          <span className="desk-col-src">产生源</span>
+          <span className="desk-col-src">来源软件</span>
           <span>关联会话</span>
           <span>改动时间</span>
           <span>大小</span>

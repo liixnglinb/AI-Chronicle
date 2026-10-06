@@ -46,3 +46,6 @@ ai-chronicle/
 
 # AI 工具状态目录（.workbuddy 与 .workbuddy-ai 两个变体都覆盖，2026-10-04）
 .workbuddy*/
+
+# Qoder 用量报告产物（技能生成的临时报表，不入库也不参与格式化检查）
+.qoder-credits/

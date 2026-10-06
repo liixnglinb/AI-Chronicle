@@ -122,18 +122,30 @@ function cleanText(text) {
 }
 
 // 判断是否为系统注入/环境说明类文本（只用作标题选择，不影响轮次计数）
+// 这些前缀是各家工具自己注入的"伪用户输入"抬头，不是人打的字，不能当会话标题。
+// 刻意逐条前缀匹配、不写泛化的 markdown 规则：用户自己的技能提示词也是以 # 开头的
+// （例如「# 任务说明（用户原始输入…）」），泛化会把真内容一起判掉。
+const INJECTED_TITLE_PREFIXES = [
+  '<',
+  'Caveat:',
+  '[Request interrupted',
+  '# AGENTS.md',
+  '## IMPORTANT',
+  '# IMPORTANT',
+  'This session is being continued',
+  'system-reminder',
+  '## ⛔',
+  '# ⛔',
+  '## 本轮运行规则来源',
+  '## 本轮作用域铁律',
+  '## 优先指令',
+  '# 优先指令',
+  '# Files mentioned by the user',
+]
+
 function isInjectedTitle(text) {
   if (!text) return true
-  return (
-    text.startsWith('<') ||
-    text.startsWith('Caveat:') ||
-    text.startsWith('[Request interrupted') ||
-    text.startsWith('# AGENTS.md') ||
-    text.startsWith('## IMPORTANT') ||
-    text.startsWith('# IMPORTANT') ||
-    text.startsWith('This session is being continued') ||
-    text.startsWith('system-reminder')
-  )
+  return INJECTED_TITLE_PREFIXES.some((prefix) => text.startsWith(prefix))
 }
 
 // 剥离文本开头的注入块（自闭合如 <sandbox_context ... />，成对如
@@ -426,6 +438,9 @@ function parseCodexFile(filePath) {
   const session = makeSession('codex', `codex:${filePath}`)
   let lastUsage = null
   let sawAny = false
+  // 只写 response_item、不写 event_msg/user_message 的 rollout 占少数，
+  // 这类会话以前会"有标题却 0 轮"。先记下来，只有 event 口径一个轮次都没数到才用它兜底。
+  let fallbackTurns = 0
   return eachJsonlLine(filePath, (obj) => {
     if (!obj || typeof obj !== 'object') return
     sawAny = true
@@ -462,22 +477,23 @@ function parseCodexFile(filePath) {
         if (tt && typeof tt === 'object') lastUsage = tt
       }
     }
-    if (!session.title && obj.type === 'response_item') {
+    if (obj.type === 'response_item') {
       const p = obj.payload || {}
       if (p.type === 'message' && p.role === 'user') {
         const parts = Array.isArray(p.content) ? p.content : []
         for (const c of parts) {
           if (c && c.type === 'input_text' && typeof c.text === 'string') {
             const s = cleanText(c.text)
-            if (s && !isInjectedTitle(s)) {
-              session.title = pickTitle(s)
-              break
-            }
+            if (!s || isInjectedTitle(s)) continue
+            fallbackTurns += 1
+            if (!session.title) session.title = pickTitle(s)
+            break
           }
         }
       }
     }
   }).then(() => {
+    if (!session.turns) session.turns = fallbackTurns
     if (lastUsage) {
       // 与 Token Monitor 同口径：供应商 total_tokens 为权威总量，
       // 缓存命中量在总量预算内截取，避免 input+cached+output 虚高
@@ -1016,7 +1032,9 @@ function attachArtifacts(sessions) {
 
 // ================================================================ 缓存
 // CACHE_VERSION 需在解析逻辑变更时递增，否则旧缓存会继续返回旧的解析结果
-const CACHE_VERSION = 3
+// v4：Codex 只写 response_item 的 rollout 现在也能计上轮次；注入块标题改判到真正的人类输入。
+//     不递增的话，界面会继续显示"有标题却 0 轮"的旧结果，改了解析器也看不出来。
+const CACHE_VERSION = 4
 
 // 缓存文件里含会话标题与项目路径，属于本机敏感数据。
 // 主进程会注入基于 safeStorage（系统钥匙串）的加解密实现，缓存即以密文落盘；
@@ -1201,7 +1219,8 @@ async function collectAll(options = {}) {
   const sources = []
   const usedCache = { hit: 0, miss: 0 }
 
-  // 阶段感知：全量采集通常 3~15 秒，必须让用户看得见「卡在哪一步」
+  // 阶段感知：全量采集按文件量要几秒到几十秒（2026-10-06 实测 1160 个文件 28.1 秒），
+  // 必须让用户看得见「卡在哪一步」
   const stage = { index: 0, total: 0 }
   function report(phase, detail) {
     if (!onProgress) return
@@ -1602,8 +1621,10 @@ module.exports = {
   collectAll,
   TOOLS,
   parseClaudeLikeFile,
+  parseCodexFile,
   decodeDirProject,
   basenameOf,
+  isInjectedTitle,
   IngestCache,
   CACHE_VERSION,
 }

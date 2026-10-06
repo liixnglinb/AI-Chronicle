@@ -2,20 +2,14 @@ import { useMemo, useState } from 'react'
 import { FolderOpen, RefreshCw } from 'lucide-react'
 import { useChronicle } from '../lib/store'
 import { formatClock } from '../lib/format'
-import { openLocalPath } from '../lib/desktop'
+import { openLocalWithToast } from '../lib/desktop'
+import { useSourceScan } from '../lib/useSourceScan'
 import { SourceHealthBadge } from '../components/SourceHealthBadge'
 import { ConfirmDialog } from '../components/Modal'
 import { EmptyState, DesktopOnlyPage } from '../components/EmptyState'
 import { SkeletonPage } from '../components/Skeleton'
 import { classNames } from '../lib/utils'
 import type { SourceRecord, ToastMessage } from '../types'
-
-interface ScanSourceResult {
-  id: string
-  exists: boolean
-  filesToday: number
-  lastModified?: string
-}
 
 interface SourcesPageProps {
   searchQuery: string
@@ -34,10 +28,8 @@ interface SourcesPageProps {
  */
 export function SourcesPage({ searchQuery, onToast }: SourcesPageProps) {
   const { data, loading, isDesktop, refresh } = useChronicle()
-  const [scanning, setScanning] = useState(false)
-  const [scanResult, setScanResult] = useState<ScanSourceResult[] | null>(null)
   const [confirmRescan, setConfirmRescan] = useState(false)
-  const [rescanning, setRescanning] = useState(false)
+  const { scanResult, scanning, rescanning, runScan, runRescan } = useSourceScan(onToast, refresh)
 
   const sources = useMemo(() => data?.sources ?? [], [data])
 
@@ -56,36 +48,10 @@ export function SourcesPage({ searchQuery, onToast }: SourcesPageProps) {
   const connected = visibleSources.filter((s) => s.status === 'connected')
   const others = visibleSources.filter((s) => s.status !== 'connected')
 
-  async function handleScan() {
-    if (!window.desktopAPI) return
-    setScanning(true)
-    try {
-      const result = await window.desktopAPI.scanSources()
-      setScanResult(result.sources)
-      onToast({
-        tone: 'success',
-        title: '数据源校验完成',
-        message: `已检查 ${result.sources.length} 个接入目录的存在性与今日写入。`,
-      })
-    } finally {
-      setScanning(false)
-    }
-  }
-
-  async function runRescan() {
-    setRescanning(true)
-    try {
-      const ok = await refresh(true)
-      setConfirmRescan(false)
-      if (!ok) return
-      onToast({
-        tone: 'success',
-        title: '已重新采集',
-        message: '采集结果已更新；异常来源可在下方查看具体原因。',
-      })
-    } finally {
-      setRescanning(false)
-    }
+  // 采集跑完再关确认框（失败也关）：否则用户停在原地，顶部的错误状态条被对话框挡住
+  async function runRescanAndClose() {
+    await runRescan()
+    setConfirmRescan(false)
   }
 
   if (!isDesktop) {
@@ -130,7 +96,7 @@ export function SourcesPage({ searchQuery, onToast }: SourcesPageProps) {
         </div>
         <div className="desk-kpi-actions">
           <button
-            onClick={handleScan}
+            onClick={() => void runScan()}
             disabled={scanning}
             className="desk-btn-secondary"
             title="逐一检查目录存在性与今日写入"
@@ -169,7 +135,7 @@ export function SourcesPage({ searchQuery, onToast }: SourcesPageProps) {
           <h3 className="desk-sec-label">活跃数据源（{connected.length}）</h3>
           <div className="desk-source-grid">
             {connected.map((source) => (
-              <SourceCard key={source.id} source={source} />
+              <SourceCard key={source.id} source={source} onToast={onToast} />
             ))}
           </div>
         </section>
@@ -181,7 +147,7 @@ export function SourcesPage({ searchQuery, onToast }: SourcesPageProps) {
           <h3 className="desk-sec-label">监测中与未配置环境（{others.length}）</h3>
           <div className="desk-source-grid">
             {others.map((source) => (
-              <SourceCard key={source.id} source={source} />
+              <SourceCard key={source.id} source={source} onToast={onToast} />
             ))}
           </div>
         </section>
@@ -201,11 +167,11 @@ export function SourcesPage({ searchQuery, onToast }: SourcesPageProps) {
           impacts={[
             '本机日志文件本身不会被修改，读取始终是只读操作',
             `当前已解析 ${data.sessions.length} 个会话，重新采集后数量应当一致`,
-            '全量扫描通常需要 3~15 秒，期间界面会显示阶段进度',
+            '全量扫描按本机文件量而定，首次较慢、之后只重读有变化的文件；期间界面会显示阶段进度',
           ]}
           confirmText="重新采集"
           loading={rescanning}
-          onConfirm={() => void runRescan()}
+          onConfirm={() => void runRescanAndClose()}
           onCancel={() => setConfirmRescan(false)}
         />
       )}
@@ -214,7 +180,13 @@ export function SourcesPage({ searchQuery, onToast }: SourcesPageProps) {
 }
 
 /** 单个数据源卡片：路径 / 协议 / 读到的量 / 读不到的原因，四件事一次说清 */
-function SourceCard({ source }: { source: SourceRecord }) {
+function SourceCard({
+  source,
+  onToast,
+}: {
+  source: SourceRecord
+  onToast: (toast: Omit<ToastMessage, 'id'>) => void
+}) {
   const isLive = source.status === 'connected'
   const paths = source.paths ?? []
 
@@ -246,7 +218,7 @@ function SourceCard({ source }: { source: SourceRecord }) {
               key={p.resolved}
               className={classNames('desk-source-path', !p.exists && 'is-missing')}
               title={`${p.exists ? '已检测到，点击打开所在目录' : '本机未检测到该路径'}\n${p.resolved}`}
-              onClick={() => void openLocalPath(p.exists ? p.resolved : p.spec)}
+              onClick={() => void openLocalWithToast(onToast, p.exists ? p.resolved : p.spec)}
               style={{
                 background: 'none',
                 border: 'none',

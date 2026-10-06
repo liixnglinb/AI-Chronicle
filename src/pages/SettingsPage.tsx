@@ -13,7 +13,9 @@ import {
   Upload,
 } from 'lucide-react'
 import { useChronicle, type AutoRefreshInterval } from '../lib/store'
-import { openLocalPath, saveText } from '../lib/desktop'
+import { openLocalWithToast, saveText } from '../lib/desktop'
+import { callDesktop } from '../lib/main-call'
+import { useSourceScan } from '../lib/useSourceScan'
 import { dayKeyOf } from '../lib/format'
 import { APP_ENV, CHANNEL_LABEL } from '../lib/env'
 import { Switch } from '../components/Switch'
@@ -76,17 +78,10 @@ const AUTO_REFRESH_OPTIONS: Array<[AutoRefreshInterval, string]> = [
   [60, '1 分钟'],
   [300, '5 分钟'],
   [900, '15 分钟'],
-  [0, '手动刷新'],
+  [0, '不轮询'],
 ]
 
 const ZOOM_OPTIONS = [90, 100, 110, 125]
-
-interface ScanSourceResult {
-  id: string
-  exists: boolean
-  filesToday: number
-  lastModified?: string
-}
 
 /** 密码强度：长度 + 字符种类，够用且不引入额外依赖 */
 function passwordStrength(pw: string): {
@@ -125,9 +120,7 @@ export function SettingsPage({ theme, searchQuery, onThemeChange, onToast }: Set
   const [backupPassword, setBackupPassword] = useState('')
   const [exportingBackup, setExportingBackup] = useState(false)
   const [importingBackup, setImportingBackup] = useState(false)
-  const [rescanning, setRescanning] = useState(false)
-  const [scanning, setScanning] = useState(false)
-  const [scanResult, setScanResult] = useState<ScanSourceResult[] | null>(null)
+  const { scanResult, scanning, rescanning, runScan, runRescan } = useSourceScan(onToast, refresh)
   const [backupSummary, setBackupSummary] = useState<{
     filePath: string
     exportedAt?: string
@@ -137,12 +130,20 @@ export function SettingsPage({ theme, searchQuery, onThemeChange, onToast }: Set
 
   useEffect(() => {
     if (!window.desktopAPI) return
-    void window.desktopAPI.getRuntimeInfo().then((info) => {
-      setRuntime(info)
-      setZoomPercent(Math.round(info.zoom * 100))
-    })
-    void window.desktopAPI.getDesktopPrefs().then(setDesktopPrefs)
-  }, [])
+    // 诊断信息取不到时保持"读取中…"而不是空值，所以这里只兜住异常，不假装成功
+    void callDesktop(onToast, '读取运行时信息', () => window.desktopAPI!.getRuntimeInfo()).then(
+      (info) => {
+        if (!info) return
+        setRuntime(info)
+        setZoomPercent(Math.round(info.zoom * 100))
+      },
+    )
+    void callDesktop(onToast, '读取桌面集成偏好', () => window.desktopAPI!.getDesktopPrefs()).then(
+      (prefs) => {
+        if (prefs) setDesktopPrefs(prefs)
+      },
+    )
+  }, [onToast])
 
   const strength = useMemo(() => passwordStrength(backupPassword), [backupPassword])
 
@@ -166,15 +167,20 @@ export function SettingsPage({ theme, searchQuery, onThemeChange, onToast }: Set
   const isSectionVisible = (id: SettingsSection) => !matchedSections || matchedSections.includes(id)
 
   async function handleZoomChange(target: number) {
+    const previous = zoomPercent
     setZoomPercent(target)
     if (!window.desktopAPI) return
-    const result = await window.desktopAPI.setZoom(target / 100)
-    if (!result.ok) {
-      onToast({ tone: 'warning', title: '缩放设置未生效', message: '请稍后重试。' })
+    const result = await callDesktop(onToast, '应用界面缩放', () =>
+      window.desktopAPI!.setZoom(target / 100),
+    )
+    if (!result || !result.ok) {
+      setZoomPercent(previous)
+      onToast({ tone: 'warning', title: '缩放设置未生效', message: '已退回原来的缩放比例。' })
     }
   }
 
   async function handlePrefChange(key: keyof DesktopPrefs, value: boolean) {
+    const previous = desktopPrefs
     const next = { ...desktopPrefs, [key]: value }
     setDesktopPrefs(next)
     if (!window.desktopAPI) {
@@ -185,8 +191,23 @@ export function SettingsPage({ theme, searchQuery, onThemeChange, onToast }: Set
       })
       return
     }
-    const result = await window.desktopAPI.setDesktopPrefs({ [key]: value })
-    if (result.ok) setDesktopPrefs(result.prefs)
+    const result = await callDesktop(onToast, '保存桌面集成偏好', () =>
+      window.desktopAPI!.setDesktopPrefs({ [key]: value }),
+    )
+    if (!result) {
+      setDesktopPrefs(previous)
+      return
+    }
+    setDesktopPrefs(result.prefs)
+    // ok=false 表示即时生效但没能写盘：保持开关为新状态（确实已生效），只把持久化风险说出来
+    if (!result.ok) {
+      onToast({
+        tone: 'warning',
+        title: '设置已生效，未能记住',
+        message: result.message || '偏好无法写入本地文件，重启后会退回原状态。',
+      })
+      return
+    }
     onToast({ tone: 'info', title: '配置已保存', message: '桌面集成偏好已立即生效' })
   }
 
@@ -205,7 +226,10 @@ export function SettingsPage({ theme, searchQuery, onThemeChange, onToast }: Set
 
   async function handleExportPlain() {
     if (!data) return
-    const result = await saveText(`AI轨迹备份-${dayKeyOf(Date.now())}.json`, buildBackupContent())
+    const result = await callDesktop(onToast, '导出备份', () =>
+      saveText(`AI轨迹备份-${dayKeyOf(Date.now())}.json`, buildBackupContent()),
+    )
+    if (!result || result.canceled) return
     onToast({
       tone: result.ok ? 'success' : 'warning',
       title: result.ok ? '备份已导出' : '导出未完成',
@@ -227,25 +251,25 @@ export function SettingsPage({ theme, searchQuery, onThemeChange, onToast }: Set
       return
     }
     setExportingBackup(true)
-    try {
-      const result = await window.desktopAPI.exportEncryptedBackup({
+    // 保存路径弹窗要等用户操作，不套超时：等 5 分钟挑目录不是卡死
+    const result = await callDesktop(onToast, '导出加密备份', () =>
+      window.desktopAPI!.exportEncryptedBackup({
         content: buildBackupContent(),
         password: backupPassword,
         defaultName: `AI轨迹加密备份-${dayKeyOf(Date.now())}.chronicle`,
-      })
-      if (result.canceled) return
-      onToast(
-        result.ok
-          ? {
-              tone: 'success',
-              title: '备份成功',
-              message: `加密归档已写入：${result.filePath ?? ''}`,
-            }
-          : { tone: 'warning', title: '导出未完成', message: result.message ?? '' },
-      )
-    } finally {
-      setExportingBackup(false)
-    }
+      }),
+    )
+    setExportingBackup(false)
+    if (!result || result.canceled) return
+    onToast(
+      result.ok
+        ? {
+            tone: 'success',
+            title: '备份成功',
+            message: `加密归档已写入：${result.filePath ?? ''}`,
+          }
+        : { tone: 'warning', title: '导出未完成', message: result.message ?? '' },
+    )
   }
 
   async function handleRestoreBackup() {
@@ -255,72 +279,45 @@ export function SettingsPage({ theme, searchQuery, onThemeChange, onToast }: Set
       return
     }
     setImportingBackup(true)
-    try {
-      const result = await window.desktopAPI.openEncryptedBackup(backupPassword)
-      if (result.canceled) return
-      if (!result.ok || !result.content) {
-        setBackupSummary(null)
-        onToast({
-          tone: 'danger',
-          title: '解密失败',
-          message: result.message || '密码错误或文件已损坏',
-        })
-        return
-      }
-      try {
-        const parsed = JSON.parse(result.content) as {
-          exportedAt?: string
-          sessions?: unknown[]
-          sources?: unknown[]
-        }
-        setBackupSummary({
-          filePath: result.filePath ?? '',
-          exportedAt: parsed.exportedAt,
-          sessions: parsed.sessions?.length ?? 0,
-          sources: parsed.sources?.length ?? 0,
-        })
-        onToast({
-          tone: 'success',
-          title: '解密成功',
-          message: `备份文件结构校验通过：${parsed.sessions?.length ?? 0} 个会话、${parsed.sources?.length ?? 0} 个来源。`,
-        })
-      } catch {
-        setBackupSummary(null)
-        onToast({
-          tone: 'danger',
-          title: '备份内容无法解析',
-          message: '解密成功，但内容不是预期的备份结构。',
-        })
-      }
-    } finally {
-      setImportingBackup(false)
+    // 选文件弹窗等用户操作，不套超时
+    const result = await callDesktop(onToast, '打开加密备份', () =>
+      window.desktopAPI!.openEncryptedBackup(backupPassword),
+    )
+    setImportingBackup(false)
+    if (!result || result.canceled) return
+    if (!result.ok || !result.content) {
+      setBackupSummary(null)
+      onToast({
+        tone: 'danger',
+        title: '解密失败',
+        message: result.message || '密码错误或文件已损坏',
+      })
+      return
     }
-  }
-
-  async function runRescan() {
-    setRescanning(true)
     try {
-      const ok = await refresh(true)
-      if (!ok) return
-      onToast({ tone: 'success', title: '已重新采集', message: '采集结果已更新。' })
-    } finally {
-      setRescanning(false)
-    }
-  }
-
-  async function runScan() {
-    if (!window.desktopAPI) return
-    setScanning(true)
-    try {
-      const result = await window.desktopAPI.scanSources()
-      setScanResult(result.sources)
+      const parsed = JSON.parse(result.content) as {
+        exportedAt?: string
+        sessions?: unknown[]
+        sources?: unknown[]
+      }
+      setBackupSummary({
+        filePath: result.filePath ?? '',
+        exportedAt: parsed.exportedAt,
+        sessions: parsed.sessions?.length ?? 0,
+        sources: parsed.sources?.length ?? 0,
+      })
       onToast({
         tone: 'success',
-        title: '数据源校验完成',
-        message: `已检查 ${result.sources.length} 个接入目录。`,
+        title: '解密成功',
+        message: `备份文件结构校验通过：${parsed.sessions?.length ?? 0} 个会话、${parsed.sources?.length ?? 0} 个来源。`,
       })
-    } finally {
-      setScanning(false)
+    } catch {
+      setBackupSummary(null)
+      onToast({
+        tone: 'danger',
+        title: '备份内容无法解析',
+        message: '解密成功，但内容不是预期的备份结构。',
+      })
     }
   }
 
@@ -461,7 +458,10 @@ export function SettingsPage({ theme, searchQuery, onThemeChange, onToast }: Set
             <div className="desk-set-row">
               <span className="desk-set-copy">
                 <strong>自动静默轮询</strong>
-                <small>后台按文件元数据 mtime 增量探活，无文件变动时零开销</small>
+                <small>
+                  后台按文件元数据 mtime
+                  增量探活，无文件变动时零开销；选「不轮询」后只在切回本窗口时补一次采集
+                </small>
               </span>
               <div className="desk-pill-group">
                 {AUTO_REFRESH_OPTIONS.map(([value, label]) => (
@@ -488,7 +488,9 @@ export function SettingsPage({ theme, searchQuery, onThemeChange, onToast }: Set
             >
               <span className="desk-set-copy">
                 <strong>{rescanning ? '正在采集…' : '立即重新采集'}</strong>
-                <small>清除会话缓存并重新扫描全部接入来源（约 3~15 秒，有阶段进度）</small>
+                <small>
+                  清除会话缓存并重新扫描全部接入来源（首次按本机文件量而定、较慢，之后只重读有变化的文件；期间显示阶段进度）
+                </small>
               </span>
               <span className="desk-meta-badge">
                 {rescanning ? '采集中' : data ? `${data.sessions.length} 会话` : '—'}
@@ -646,7 +648,7 @@ export function SettingsPage({ theme, searchQuery, onThemeChange, onToast }: Set
                 {runtime ? (
                   <button
                     className="desk-diag-link"
-                    onClick={() => void openLocalPath(runtime.dataPath)}
+                    onClick={() => void openLocalWithToast(onToast, runtime.dataPath)}
                   >
                     打开 Local 目录 <ExternalLink size={10} />
                   </button>
@@ -659,7 +661,7 @@ export function SettingsPage({ theme, searchQuery, onThemeChange, onToast }: Set
                 {runtime ? (
                   <button
                     className="desk-diag-link"
-                    onClick={() => void openLocalPath(runtime.logPath)}
+                    onClick={() => void openLocalWithToast(onToast, runtime.logPath)}
                   >
                     打开 Logs 目录 <ExternalLink size={10} />
                   </button>

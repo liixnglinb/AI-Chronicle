@@ -927,21 +927,6 @@
   animation: deskSpin 800ms linear infinite;
 }
 
-/* ---------- 窄窗口兜底 ---------- */
-@media (max-width: 900px) {
-  .desk-sidebar {
-    width: 168px;
-  }
-
-  .desk-stage-viewport {
-    padding: var(--vr-sp-4);
-  }
-
-  .desk-stage-search {
-    width: 150px;
-  }
-
-  .desk-stage-search:focus {
-    width: 190px;
-  }
-}
+/* 原先这里有 @media (max-width: 900px) 的窄窗兜底，但窗口 minWidth=960
+   （electron/main.cjs），900 档永远命不中；实测 960 宽七个视图均无横向溢出，故删除。
+   要支持更小窗口先降 minWidth，再补断点。 */

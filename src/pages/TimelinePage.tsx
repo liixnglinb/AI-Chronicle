@@ -3,6 +3,7 @@ import { Clock } from 'lucide-react'
 import { useChronicle } from '../lib/store'
 import { dayKeyOf, formatDuration, formatTimeRange, sessionTouchesDay } from '../lib/format'
 import { projectDisplayName } from '../lib/paths'
+import { matchSession } from '../lib/search'
 import { EmptyState, DesktopOnlyPage } from '../components/EmptyState'
 import { SkeletonPage } from '../components/Skeleton'
 import { ToolMark } from '../components/ToolMark'
@@ -38,14 +39,14 @@ function hourOfSession(
  * 点击任一小时可联动筛选下方流水。
  */
 export function TimelinePage({ searchQuery }: TimelinePageProps) {
-  const { data, loading, isDesktop, settings } = useChronicle()
+  const { data, loading, isDesktop, settings, nowRef } = useChronicle()
   // 目录标签默认不渲染（设置中心可打开）；卡片头本来就有软件名，隐藏后仍看得出是谁干的
   const showPaths = settings.showProjectPaths
   const [selectedHour, setSelectedHour] = useState<number | null>(null)
   /** 悬停小时：仅高亮联动，不改变过滤，避免鼠标扫过标尺时下方流水剧烈跳动 */
   const [hoverHour, setHoverHour] = useState<number | null>(null)
 
-  const todayKey = useMemo(() => dayKeyOf(Date.now()), [])
+  const todayKey = dayKeyOf(nowRef)
 
   const todaySessions = useMemo(() => {
     return (data?.sessions ?? [])
@@ -124,15 +125,8 @@ export function TimelinePage({ searchQuery }: TimelinePageProps) {
     if (selectedHour !== null) {
       list = list.filter((s) => hourOfSession(s, selectedHour))
     }
-    const q = searchQuery.trim().toLowerCase()
-    if (!q) return list
-    return list.filter(
-      (s) =>
-        s.title.toLowerCase().includes(q) ||
-        s.project.toLowerCase().includes(q) ||
-        s.projectPath.toLowerCase().includes(q) ||
-        s.toolName.toLowerCase().includes(q),
-    )
+    if (!searchQuery.trim()) return list
+    return list.filter((s) => matchSession(s, searchQuery))
   }, [todaySessions, selectedHour, searchQuery])
 
   const highlightedIds = useMemo(() => {

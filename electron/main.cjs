@@ -189,13 +189,20 @@ function loadPrefs() {
 }
 
 function savePrefs(next) {
-  prefsCache = { ...loadPrefs(), ...next }
+  const merged = { ...loadPrefs(), ...next }
+  prefsCache = merged
   try {
-    fs.writeFileSync(prefsFile(), JSON.stringify(prefsCache), 'utf8')
-  } catch {
-    // 忽略写入失败
+    fs.writeFileSync(prefsFile(), JSON.stringify(merged), 'utf8')
+  } catch (error) {
+    appendLog('main.log', { scope: 'save-prefs', ...describeError(error) })
+    // 内存里的偏好已经生效，但重启后读不回来 —— 必须告诉调用方，不能报"已保存"
+    return {
+      ok: false,
+      prefs: merged,
+      message: '偏好已即时生效，但写入本地文件失败，重启后会退回。',
+    }
   }
-  return prefsCache
+  return { ok: true, prefs: merged }
 }
 
 function applyAutoStart(enabled) {
@@ -428,7 +435,14 @@ function createWindow() {
     const currentUrl = window.webContents.getURL()
     if (url !== currentUrl && !url.startsWith('file://')) {
       event.preventDefault()
-      void shell.openExternal(url)
+      // 与 setWindowOpenHandler 同一口径：只把 http(s) 交给系统浏览器。
+      // 少了这个判断，slack:// 、steam:// 、ms-msdt: 这类协议处理器会被直接调用，
+      // 等于给"注入脚本 → 本机执行程序"留了后半段。
+      if (url.startsWith('http://') || url.startsWith('https://')) {
+        void shell.openExternal(url)
+      } else {
+        appendLog('main.log', { scope: 'blocked-navigation', url: String(url).slice(0, 200) })
+      }
     }
   })
 
@@ -1097,13 +1111,15 @@ ipcMain.handle('desktop:set-zoom', (event, level) => {
 // 桌面集成偏好（托盘 / 自启 / 通知）
 ipcMain.handle('desktop:get-desktop-prefs', () => loadPrefs())
 ipcMain.handle('desktop:set-desktop-prefs', (_event, patch) => {
-  const next = savePrefs({
-    minimizeToTray: !!patch?.minimizeToTray,
-    autoStart: !!patch?.autoStart,
-    notifyOnIngest: !!patch?.notifyOnIngest,
-  })
-  applyAutoStart(next.autoStart)
-  return { ok: true, prefs: next }
+  // 只覆盖本次真正传来的键。原来用 !!patch?.x 一次重建三个键，
+  // 而渲染层每次只发一个键 —— 改「开机自启」会把「最小化到托盘」「采集通知」静默重置成 false。
+  const next = {}
+  for (const key of Object.keys(DEFAULT_PREFS)) {
+    if (patch && typeof patch[key] === 'boolean') next[key] = patch[key]
+  }
+  const result = savePrefs(next)
+  applyAutoStart(result.prefs.autoStart)
+  return result
 })
 
 // 加密备份：导出（密码加密）与打开（解密校验）
@@ -1113,10 +1129,17 @@ ipcMain.handle('desktop:export-encrypted-backup', async (event, payload) => {
     return { ok: false, message: '备份密码至少 6 位。' }
   }
   const win = BrowserWindow.fromWebContents(event.sender)
+  // 与 save-text-file 同一口径：净化文件名并锚定到"文档"目录，
+  // 否则渲染层传来的 defaultName 可以把保存框预置到任意目录。
+  const rawName = String(payload?.defaultName ?? '')
+  const safeName = rawName.trim()
+    ? rawName.replace(/[<>:"/\\|?*]/g, '-')
+    : 'AI轨迹加密备份.chronicle'
   const { canceled, filePath } = await dialog.showSaveDialog(win ?? undefined, {
     title: '导出加密备份',
-    defaultPath: String(payload?.defaultName ?? 'AI轨迹加密备份.json'),
-    filters: [{ name: '加密备份', extensions: ['json'] }],
+    defaultPath: path.join(app.getPath('documents'), safeName),
+    // 渲染层建议的是 .chronicle；只列 json 会让用户导出的备份在"打开"框里被过滤掉
+    filters: [{ name: '加密备份', extensions: ['chronicle', 'json'] }],
   })
   if (canceled || !filePath) return { ok: false, canceled: true }
   try {
@@ -1134,7 +1157,7 @@ ipcMain.handle('desktop:open-encrypted-backup', async (event, password) => {
   const { canceled, filePaths } = await dialog.showOpenDialog(win ?? undefined, {
     title: '打开加密备份',
     properties: ['openFile'],
-    filters: [{ name: '加密备份', extensions: ['json'] }],
+    filters: [{ name: '加密备份', extensions: ['chronicle', 'json'] }],
   })
   const target = filePaths?.[0]
   if (canceled || !target) return { ok: false, canceled: true }
@@ -1149,10 +1172,12 @@ ipcMain.handle('desktop:open-encrypted-backup', async (event, password) => {
 // 渲染进程错误上报（未捕获异常 / 未处理拒绝 / 组件渲染崩溃）
 ipcMain.handle('desktop:report-error', (_event, payload) => {
   appendLog('renderer.log', {
-    scope: payload?.scope ?? 'unknown',
+    // 每个字段都要限长并强制成字符串：渲染层（含被注入的脚本）能传任意对象，
+    // 未截断的 source 会把日志撑爆，也可能把非预期内容写进本机日志文件。
+    scope: String(payload?.scope ?? 'unknown').slice(0, 60),
     message: String(payload?.message ?? '').slice(0, 2000),
     stack: typeof payload?.stack === 'string' ? payload.stack.slice(0, 8000) : undefined,
-    source: payload?.source,
+    source: String(payload?.source ?? '').slice(0, 300),
   })
   return { ok: true }
 })
@@ -1178,6 +1203,31 @@ ipcMain.handle('desktop:set-window-theme', (event, theme) => {
   }
 })
 
+// shell.openPath 对可执行文件等于"双击运行"。成果集里的文件来自会话日志，
+// 里面完全可能出现 setup.exe / 某个 .lnk，点一下就把程序跑起来了 —— 这里一律拒绝，
+// 只允许打开目录和普通数据文件。
+const NEVER_OPEN_EXTENSIONS = new Set([
+  '.exe',
+  '.com',
+  '.bat',
+  '.cmd',
+  '.msi',
+  '.msp',
+  '.ps1',
+  '.psm1',
+  '.vbs',
+  '.vbe',
+  '.js',
+  '.jse',
+  '.wsf',
+  '.wsh',
+  '.scr',
+  '.lnk',
+  '.hta',
+  '.cpl',
+  '.reg',
+])
+
 ipcMain.handle('desktop:open-path', async (_event, rawPath) => {
   if (typeof rawPath !== 'string' || !rawPath.trim()) {
     return { ok: false, message: '路径为空。' }
@@ -1185,6 +1235,11 @@ ipcMain.handle('desktop:open-path', async (_event, rawPath) => {
   const target = path.resolve(expandPath(rawPath))
   if (!fs.existsSync(target)) {
     return { ok: false, message: `路径不存在：${target}` }
+  }
+  const ext = path.extname(target).toLowerCase()
+  if (NEVER_OPEN_EXTENSIONS.has(ext)) {
+    appendLog('main.log', { scope: 'blocked-open-path', ext })
+    return { ok: false, message: `出于安全，本应用不打开 ${ext} 这类可执行文件。` }
   }
   const error = await shell.openPath(target)
   return error ? { ok: false, message: error } : { ok: true, message: target }
@@ -1240,7 +1295,7 @@ function runIngest(force = false) {
     cachePath: path.join(app.getPath('userData'), 'chronicle-ingest-cache.json'),
     // 缓存内容含会话标题与项目路径，交给系统钥匙串加密后落盘
     crypto: buildCacheCrypto(),
-    // 阶段感知：全量采集 3~15 秒，必须让渲染层知道当前卡在哪一步
+    // 阶段感知：全量采集按文件量要几秒到几十秒，必须让渲染层知道当前卡在哪一步
     onProgress: (payload) => {
       const target = mainWindow()
       if (!target || target.isDestroyed()) return

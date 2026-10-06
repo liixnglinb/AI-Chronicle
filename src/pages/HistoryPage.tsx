@@ -9,18 +9,20 @@ import {
   sessionDurationMinutes,
 } from '../lib/format'
 import { projectDisplayName } from '../lib/paths'
+import { matchSession } from '../lib/search'
 import { useIncrementalList } from '../lib/useIncrementalList'
 import { useViewState, isFilter } from '../lib/useViewState'
-import { openLocalPath } from '../lib/desktop'
+import { openLocalWithToast } from '../lib/desktop'
 import { ToolMark } from '../components/ToolMark'
 import { EmptyState, DesktopOnlyPage } from '../components/EmptyState'
 import { SkeletonPage } from '../components/Skeleton'
 import { classNames } from '../lib/utils'
-import type { SessionRecord } from '../types'
+import type { SessionRecord, ToastMessage } from '../types'
 
 interface HistoryPageProps {
   searchQuery: string
   onClearSearch: () => void
+  onToast: (toast: Omit<ToastMessage, 'id'>) => void
 }
 
 type RangeOption = 7 | 30 | 0
@@ -36,8 +38,8 @@ const RANGE_OPTIONS: Array<[RangeOption, string]> = [
  * 默认展开最近 3 个活动日，其余折叠 —— 历史动辄数百条会话，
  * 全量铺开既慢又让人找不到东西。
  */
-export function HistoryPage({ searchQuery, onClearSearch }: HistoryPageProps) {
-  const { data, loading, isDesktop, settings } = useChronicle()
+export function HistoryPage({ searchQuery, onClearSearch, onToast }: HistoryPageProps) {
+  const { data, loading, isDesktop, settings, nowRef } = useChronicle()
   // 目录名默认不显示（搜索仍能命中目录），行内以「软件徽标 + 会话标题」为主
   const showPaths = settings.showProjectPaths
   const [rangeFilter, setRangeFilter] = useViewState<RangeOption>(
@@ -70,24 +72,14 @@ export function HistoryPage({ searchQuery, onClearSearch }: HistoryPageProps) {
 
   // 2. 复合过滤：时间跨度 ∩ 工具来源 ∩ 搜索词
   const filteredSessions = useMemo(() => {
-    const cutoff = rangeFilter === 0 ? 0 : Date.now() - rangeFilter * 86_400_000
-    const q = searchQuery.trim().toLowerCase()
+    const cutoff = rangeFilter === 0 ? 0 : nowRef - rangeFilter * 86_400_000
 
     return allSessions.filter((s) => {
       if (cutoff && (s.start || 0) < cutoff) return false
       if (toolFilter !== 'all' && s.tool !== toolFilter) return false
-      if (!q) return true
-      return (
-        s.title.toLowerCase().includes(q) ||
-        s.project.toLowerCase().includes(q) ||
-        s.projectPath.toLowerCase().includes(q) ||
-        s.model.toLowerCase().includes(q) ||
-        s.toolName.toLowerCase().includes(q) ||
-        // 产出文件名也要能搜到：用户记得「改过哪个文件」时往往不记得会话标题
-        (s.artifacts ?? []).some((a) => a.name.toLowerCase().includes(q))
-      )
+      return matchSession(s, searchQuery)
     })
-  }, [allSessions, rangeFilter, toolFilter, searchQuery])
+  }, [allSessions, rangeFilter, toolFilter, searchQuery, nowRef])
 
   // 3. 按日分组（新的在前）
   const dayGroups = useMemo(() => {
@@ -138,20 +130,6 @@ export function HistoryPage({ searchQuery, onClearSearch }: HistoryPageProps) {
 
   if (loading && !data) return <SkeletonPage cards={0} rows={6} banner={false} />
 
-  if (dayGroups.length === 0) {
-    return (
-      <EmptyState
-        title="未匹配到历史会话记录"
-        description="请尝试调整时间范围、工具筛选条件，或清空当前搜索关键词。"
-        actions={
-          <button onClick={resetFilters} className="desk-btn-secondary">
-            重置全部筛选
-          </button>
-        }
-      />
-    )
-  }
-
   return (
     <div className="desk-history-shell">
       {/* 复合控制工具条 */}
@@ -197,8 +175,20 @@ export function HistoryPage({ searchQuery, onClearSearch }: HistoryPageProps) {
         </div>
       </div>
 
-      {/* 分日折叠清单 */}
+      {/* 分日折叠清单。空态放在清单里而不是整页早退：筛选条一旦被撤掉，
+          "请调整时间范围/工具筛选"这句提示就没有可点的控件了。 */}
       <div className="desk-day-group-list">
+        {dayGroups.length === 0 && (
+          <EmptyState
+            title="未匹配到历史会话记录"
+            description="请尝试调整时间范围、工具筛选条件，或清空当前搜索关键词。"
+            actions={
+              <button onClick={resetFilters} className="desk-btn-secondary">
+                重置全部筛选
+              </button>
+            }
+          />
+        )}
         {visibleDayGroups.map((group, groupIdx) => {
           const expanded = isDayExpanded(group.dayKey, groupIdx)
           const totalTurns = group.sessions.reduce((acc, s) => acc + s.turns, 0)
@@ -260,7 +250,7 @@ export function HistoryPage({ searchQuery, onClearSearch }: HistoryPageProps) {
                               className="desk-meta-proj"
                               onClick={(e) => {
                                 e.stopPropagation()
-                                if (s.projectPath) void openLocalPath(s.projectPath)
+                                if (s.projectPath) void openLocalWithToast(onToast, s.projectPath)
                               }}
                               title={`在工作目录中打开：${s.projectPath}`}
                             >

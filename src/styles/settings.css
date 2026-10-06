@@ -471,20 +471,5 @@
   line-height: 1.6;
 }
 
-@media (max-width: 900px) {
-  .desk-settings-shell {
-    flex-direction: column;
-    gap: var(--vr-sp-4);
-  }
-
-  .desk-settings-nav {
-    width: 100%;
-    flex-direction: row;
-    flex-wrap: wrap;
-    position: static;
-  }
-
-  .desk-diag-grid {
-    grid-template-columns: 1fr;
-  }
-}
+/* 原 @media (max-width: 900px) 的"设置页改单列"规则已删：窗口 minWidth=960，
+   永远命不中；实测 960 宽下侧栏 178px + 卡片 512px 无溢出，不需要改列。 */

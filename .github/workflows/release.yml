@@ -50,8 +50,11 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 标签名不能直接插值进脚本：git ref 允许出现引号等字符，
+          # "${{ github.ref_name }}" 会把脚本字符串截断并执行后半段。走 env 传值。
+          RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          $tag = "${{ github.ref_name }}"
+          $tag = $env:RELEASE_TAG
           gh release view $tag --repo liixnglinb/AI-Chronicle *> $null
           if ($LASTEXITCODE -ne 0) {
             gh release create $tag --repo liixnglinb/AI-Chronicle --title "AI 轨迹 $tag" --notes "Windows release $tag" --verify-tag

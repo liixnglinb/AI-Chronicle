@@ -81,7 +81,7 @@ npm run dev:desktop  # Electron 开发模式（真实数据）
 | `npm run build`                   | 类型检查（含测试项目）+ 生产构建（注入 CSP）     |
 | `npm run lint`                    | oxlint 静态检查                                  |
 | `npm run format` / `format:check` | Prettier 格式化 / 校验                           |
-| `npm run test` / `test:watch`     | Vitest 单元测试（56 项）                         |
+| `npm run test` / `test:watch`     | Vitest 单元测试（143 项 / 10 文件）              |
 | `npm run verify`                  | 依次执行 format:check → lint → test → build      |
 | `npm run dist`                    | 产出 Setup 安装版 + Portable 便携版 + latest.yml |
 
@@ -135,10 +135,14 @@ npm run dev:desktop  # Electron 开发模式（真实数据）
 
 ## 架构
 
-- **技术栈**：Electron 44（Node 24 内置 `node:sqlite` 只读直连各软件数据库，零原生模块）+ React 19 + TypeScript + Vite 8 + Recharts + fzstd（纯 JS zstd）
-- **采集层**：`electron/ingest.cjs`。文件级缓存（mtime + size 未变直接复用），首次全量约 10–20 秒，之后亚秒级。缓存版本号在解析逻辑变更时必须递增（`CACHE_VERSION`）
-- **前端结构**：`src/components` 放通用原语（PageHeader / EmptyState / SummaryStrip / ChartTooltip / Switch / ErrorBoundary），`src/pages` 放 8 个页面，`src/lib` 放纯逻辑（format / summary / theme / env / errors / useIncrementalList / store）
-- **样式**：`src/App.css` 是唯一样式入口，按「令牌 → 基础 → 外壳 → 原语 → 页面 → 浮层 → 响应式」分层。新增样式请复用令牌，不要引入一次性字号与间距
+完整说明见 `docs/architecture.md`（进程模型、数据流、存储文件、验证工具、已知限制）。这里只留主干：
+
+- **技术栈**：Electron 44（用 Node 24 内置的 `node:sqlite` 只读直连各软件数据库，零原生模块）+ React 19 + TypeScript + Vite 8 + fzstd（纯 JS zstd）；图表是 `src/components/charts/` 下的自绘 SVG，**没有 recharts**（v0.6.8 移除）
+- **采集层**：`electron/ingest.cjs`。文件级缓存按 `mtime + size` 复用，2026-10-06 本机实测：1160 个文件冷启动 28.1 秒，命中缓存 1.0 秒（28× 收益）。**解析逻辑一变必须递增 `CACHE_VERSION`**，否则旧缓存会持续返回旧结果，改了也看不出来（当前 v4）
+- **前端结构**：`src/components` 通用原语（AppShell / Button / Modal / Switch / EmptyState / Skeleton / ErrorBoundary / ToastStack / ToolMark / UpdatePanel / UpdateBadge / DataStateBanner / SourceHealthBadge / CommandPalette / charts），`src/pages` 8 个页面，`src/lib` 纯逻辑与 hook
+- **`src/lib` 的边界**：`async.ts`（超时/退避，纯函数）、`main-call.ts`（主进程调用统一收口：超时与异常都要弹出来）、`search.ts`（会话搜索的唯一字段口径）、`useSourceScan.ts`（数据源校验/重采，两个页面共用）、`store.tsx`（采集 + 保活 + 更新订阅 + 偏好持久化 + `nowRef`）、`format.ts` / `paths.ts` / `summary.ts` / `theme.ts` / `env.ts` / `errors.ts` / `desktop.ts` / `useIncrementalList.ts` / `useViewState.ts` / `useFocusTrap.ts` / `utils.ts`
+- **样式**：唯一入口是 `src/styles/index.css`，按「令牌 → 动效 → 外壳 → 反馈 → 命令面板 → 图表 → 页面 → 设置」顺序 `@import`，**后加载的文件覆盖前面的同名选择器**，反过来不行。新增样式请复用 `voyra-tokens.css` 的令牌，不要引入一次性字号与间距
+- **打包**：`build.files` 显式排除 `react` / `react-dom` / `scheduler` / `lucide-react` —— 它们已被 Vite 打进 `dist`，再进 asar 就是纯重复（排除前 asar 解包 44.8 MB，其中 `lucide-react` 占 33.3 MB；排除后 2.8 MB）。它们仍留在 `dependencies`，这样 CI 的 `npm audit --omit=dev` 才会覆盖到实际 shipped 的代码
 
 ## 隐私
 

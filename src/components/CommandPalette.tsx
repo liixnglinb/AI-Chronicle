@@ -3,6 +3,7 @@ import { CornerDownLeft, Download, Moon, RefreshCw, Search, Sun, X } from 'lucid
 import { navItems } from '../data/nav'
 import { useChronicle } from '../lib/store'
 import { formatTimeRange } from '../lib/format'
+import { matchSession } from '../lib/search'
 import { useFocusTrap } from '../lib/useFocusTrap'
 import { classNames } from '../lib/utils'
 import { ToolMark } from './ToolMark'
@@ -64,7 +65,7 @@ export function CommandPalette({
       {
         id: 'op-refresh',
         label: '立即重新采集全量数据源',
-        hint: '强制扫描本机全部 AI 工具归档',
+        hint: '强制扫描本机全部 AI 软件归档',
         icon: <RefreshCw size={14} />,
         run: () => {
           void refresh(true).then((ok) => {
@@ -106,15 +107,7 @@ export function CommandPalette({
       actions: staticActions.filter(
         (a) => a.label.toLowerCase().includes(q) || a.hint.toLowerCase().includes(q),
       ),
-      sessions: allSessions
-        .filter(
-          (s) =>
-            s.title.toLowerCase().includes(q) ||
-            s.project.toLowerCase().includes(q) ||
-            s.toolName.toLowerCase().includes(q) ||
-            s.projectPath.toLowerCase().includes(q),
-        )
-        .slice(0, 20),
+      sessions: allSessions.filter((s) => matchSession(s, query)).slice(0, 20),
     }
   }, [query, staticActions, allSessions])
 
@@ -180,7 +173,7 @@ export function CommandPalette({
           <input
             type="text"
             placeholder="搜索命令、操作或跨工具历史会话…"
-            aria-label="搜索命令、操作或跨工具历史会话"
+            aria-label="搜索命令、操作或跨软件历史会话"
             role="combobox"
             aria-expanded="true"
             aria-autocomplete="list"
@@ -275,7 +268,9 @@ export function CommandPalette({
           )}
 
           {flattenedTotal === 0 && (
-            <div className="desk-cmd-empty">未检索到匹配项，可尝试搜索工具名称或工作目录</div>
+            <div className="desk-cmd-empty">
+              未检索到匹配项，可尝试搜索软件名称{showPaths ? '或工作目录' : '或会话标题'}
+            </div>
           )}
         </div>
 

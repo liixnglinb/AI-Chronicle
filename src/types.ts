@@ -17,6 +17,14 @@ export interface ToastMessage {
   message: string
 }
 
+/** 单个接入目录的本机探测结果（`desktop:scan-sources` 的返回单元） */
+export interface ScanSourceResult {
+  id: string
+  exists: boolean
+  filesToday: number
+  lastModified?: string
+}
+
 export type UpdateStatus = {
   state:
     | 'idle'

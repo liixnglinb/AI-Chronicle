@@ -1406,15 +1406,4 @@
   }
 }
 
-@media (max-width: 820px) {
-  .desk-kpi-matrix {
-    grid-template-columns: repeat(2, 1fr);
-  }
-  .desk-row-time {
-    width: 96px;
-  }
-
-  .desk-row-tool {
-    display: none;
-  }
-}
+/* 原 @media (max-width: 820px) 一组规则已删：窗口 minWidth=960，永远命不中 */

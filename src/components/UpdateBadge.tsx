@@ -3,19 +3,22 @@ import { ArrowUpRight } from 'lucide-react'
 import { useChronicle } from '../lib/store'
 import { classNames } from '../lib/utils'
 import { InstallConfirmDialog, useUpdateActions } from './UpdatePanel'
+import type { ToastMessage } from '../types'
 
 interface UpdateBadgeProps {
   onNavigate: (view: 'settings') => void
+  onToast: (toast: Omit<ToastMessage, 'id'>) => void
 }
 
 /**
  * 常驻更新提示条：固定右下角，仅在有可用更新时出现。
  * 与设置页共用 useUpdateActions，两处按钮行为与文案保持一致。
  */
-export function UpdateBadge({ onNavigate }: UpdateBadgeProps) {
+export function UpdateBadge({ onNavigate, onToast }: UpdateBadgeProps) {
   const { update, isDesktop } = useChronicle()
   const [hover, setHover] = useState(false)
-  const actions = useUpdateActions()
+  // 必须接上 toast：从悬浮条点安装失败时，这里不接就等于没有任何反馈
+  const actions = useUpdateActions(onToast)
 
   if (!isDesktop) return null
   const { state } = actions
@@ -60,6 +63,8 @@ export function UpdateBadge({ onNavigate }: UpdateBadgeProps) {
               ? `安装 v${actions.version} 并重启`
               : `新版本 v${actions.version}，前往设置查看`
           }
+          onFocus={() => setHover(true)}
+          onBlur={() => setHover(false)}
           onClick={() => {
             if (state === 'downloaded') actions.requestInstall()
             else onNavigate('settings')

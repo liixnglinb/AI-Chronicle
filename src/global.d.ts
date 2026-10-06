@@ -1,5 +1,7 @@
 export {}
 
+import type { ScanSourceResult } from './types'
+
 declare global {
   /** 主进程 → 渲染进程的更新状态载荷（推送与拉取共用同一份形状） */
   interface UpdateStatusPayload {
@@ -122,12 +124,7 @@ declare global {
       scanSources: () => Promise<{
         ok: boolean
         scannedAt: string
-        sources: Array<{
-          id: string
-          exists: boolean
-          filesToday: number
-          lastModified?: string
-        }>
+        sources: ScanSourceResult[]
       }>
       ingest: (force?: boolean) => Promise<IngestData>
       getRuntimeInfo: () => Promise<DesktopRuntimeInfo>
@@ -137,7 +134,7 @@ declare global {
       getDesktopPrefs: () => Promise<DesktopPrefs>
       setDesktopPrefs: (
         patch: Partial<DesktopPrefs>,
-      ) => Promise<{ ok: boolean; prefs: DesktopPrefs }>
+      ) => Promise<{ ok: boolean; prefs: DesktopPrefs; message?: string }>
       exportEncryptedBackup: (payload: {
         content: string
         password: string

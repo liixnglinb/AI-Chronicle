@@ -11,7 +11,8 @@ import {
 } from '../lib/format'
 import { buildDailyReport, buildWorkSummary } from '../lib/summary'
 import { projectDisplayName } from '../lib/paths'
-import { openLocalPath, saveText } from '../lib/desktop'
+import { openLocalWithToast, saveText } from '../lib/desktop'
+import { callDesktop } from '../lib/main-call'
 import { EmptyState, DesktopOnlyPage } from '../components/EmptyState'
 import { SkeletonPage } from '../components/Skeleton'
 import { ToolMark } from '../components/ToolMark'
@@ -30,12 +31,12 @@ interface TodayPageProps {
  * 目标是把「今天干了什么」压缩到一屏内可读完，而不是流水账。
  */
 export function TodayPage({ searchQuery, onToast }: TodayPageProps) {
-  const { data, loading, isDesktop, settings } = useChronicle()
+  const { data, loading, isDesktop, settings, nowRef } = useChronicle()
   // 目录信息默认隐藏（设置中心可打开）：主键随之从工作目录换成 AI 软件
   const showPaths = settings.showProjectPaths
   const groupBy = showPaths ? 'path' : ('tool' as const)
 
-  const todayKey = useMemo(() => dayKeyOf(Date.now()), [])
+  const todayKey = dayKeyOf(nowRef)
 
   const todaySessions = useMemo(() => {
     return (data?.sessions ?? [])
@@ -142,7 +143,8 @@ export function TodayPage({ searchQuery, onToast }: TodayPageProps) {
     if (todaySessions.length === 0) return
     const md = buildDailyReport([...todaySessions].reverse(), Date.now(), groupBy)
     const fileName = `AI工作日报-${todayKey}.md`
-    const result = await saveText(fileName, md)
+    const result = await callDesktop(onToast, '导出日报', () => saveText(fileName, md))
+    if (!result || result.canceled) return
     onToast(
       result.ok
         ? { tone: 'success', title: '日报导出成功', message: `文件已写入：${fileName}` }
@@ -189,8 +191,8 @@ export function TodayPage({ searchQuery, onToast }: TodayPageProps) {
           <h2 className="desk-kpi-lead">
             {kpis
               ? showPaths
-                ? `共调用 ${kpis.toolCount} 款 AI 工具，在 ${kpis.projects} 个工作目录完成 ${todaySessions.length} 场会话。`
-                : `共调用 ${kpis.toolCount} 款 AI 工具，完成 ${todaySessions.length} 场会话。`
+                ? `共调用 ${kpis.toolCount} 款 AI 软件，在 ${kpis.projects} 个工作目录完成 ${todaySessions.length} 场会话。`
+                : `共调用 ${kpis.toolCount} 款 AI 软件，完成 ${todaySessions.length} 场会话。`
               : '今日暂无会话'}
           </h2>
           {kpis && (
@@ -245,7 +247,7 @@ export function TodayPage({ searchQuery, onToast }: TodayPageProps) {
               <button
                 key={art.path}
                 className="desk-artifact-chip"
-                onClick={() => void openLocalPath(art.path)}
+                onClick={() => void openLocalWithToast(onToast, art.path)}
                 title={showPaths ? art.path : art.name}
               >
                 <ToolMark tool={art.tool} name={art.toolName} color={art.toolColor} size={14} />

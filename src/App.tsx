@@ -3,6 +3,7 @@ import { AppShell } from './components/AppShell'
 import { EmptyState } from './components/EmptyState'
 import { CommandPalette } from './components/CommandPalette'
 import { DataStateBanner } from './components/DataStateBanner'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { ToastStack } from './components/ToastStack'
 import { UpdateBadge } from './components/UpdateBadge'
 import { ChronicleProvider, useChronicle } from './lib/store'
@@ -11,6 +12,7 @@ import { navItems } from './data/nav'
 import { dayKeyOf } from './lib/format'
 import { buildDailyReport } from './lib/summary'
 import { saveText } from './lib/desktop'
+import { callDesktop } from './lib/main-call'
 import type { ToastMessage, ViewId } from './types'
 
 const TodayPage = lazy(() =>
@@ -82,7 +84,8 @@ function useDailyReportExport(pushToast: (toast: Omit<ToastMessage, 'id'>) => vo
       settings.showProjectPaths ? 'path' : 'tool',
     )
     const fileName = `AI工作日报-${todayKey}.md`
-    const result = await saveText(fileName, md)
+    const result = await callDesktop(pushToast, '导出日报', () => saveText(fileName, md))
+    if (!result || result.canceled) return
     pushToast(
       result.ok
         ? { tone: 'success', title: '日报导出成功', message: `文件已写入：${fileName}` }
@@ -234,7 +237,9 @@ function Workspace() {
       case 'timeline':
         return <TimelinePage searchQuery={searchQuery} />
       case 'history':
-        return <HistoryPage searchQuery={searchQuery} onClearSearch={clearSearch} />
+        return (
+          <HistoryPage searchQuery={searchQuery} onClearSearch={clearSearch} onToast={pushToast} />
+        )
       case 'projects':
         // 侧栏在关闭目录时不列这一项，深链 ?view=projects 仍可能进来，给出去处而不是空页
         if (!settings.showProjectPaths) {
@@ -254,7 +259,9 @@ function Workspace() {
           <ProjectsPage searchQuery={searchQuery} onClearSearch={clearSearch} onToast={pushToast} />
         )
       case 'library':
-        return <LibraryPage searchQuery={searchQuery} onClearSearch={clearSearch} />
+        return (
+          <LibraryPage searchQuery={searchQuery} onClearSearch={clearSearch} onToast={pushToast} />
+        )
       case 'insights':
         return <InsightsPage searchQuery={searchQuery} onToast={pushToast} />
       case 'sources':
@@ -297,7 +304,9 @@ function Workspace() {
           }
         >
           <div className="desk-view-enter" key={activeView}>
-            {renderPage()}
+            {/* 页级边界：外层 div 以 activeView 为 key，切到别的页面就等于自动重置这个边界。
+                只有根边界时，任一页面 render 抛错会把导航栏、状态条、toast 一起换成整屏错误卡片。 */}
+            <ErrorBoundary>{renderPage()}</ErrorBoundary>
           </div>
         </Suspense>
       </AppShell>
@@ -317,7 +326,7 @@ function Workspace() {
         toasts={toasts}
         onDismiss={(id) => setToasts((current) => current.filter((toast) => toast.id !== id))}
       />
-      <UpdateBadge onNavigate={(view) => navigate(view)} />
+      <UpdateBadge onNavigate={(view) => navigate(view)} onToast={pushToast} />
     </>
   )
 }

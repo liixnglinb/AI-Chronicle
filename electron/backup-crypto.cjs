@@ -11,10 +11,30 @@ const BACKUP_FORMAT = 'ai-chronicle-encrypted-backup'
 const BACKUP_VERSION = 1
 const BACKUP_KEY_LENGTH = 32
 
+// scrypt 成本参数必须显式写死并随文件保存：以前两边都依赖 Node 默认值（N=2^14），
+// 一旦默认值变化，旧备份就会以"密码错误"的形式静默解不开。
+// 这里的值就是 Node 当时的默认，所以历史备份仍然可解。
+const KDF_PARAMS = { N: 16384, r: 8, p: 1 }
+
+function normalizeKdfParams(raw) {
+  if (!raw || typeof raw !== 'object') return { ...KDF_PARAMS }
+  const N = Number(raw.N) || KDF_PARAMS.N
+  const r = Number(raw.r) || KDF_PARAMS.r
+  const p = Number(raw.p) || KDF_PARAMS.p
+  // 参数来自文件内容，必须夹住：否则一个 N=2^30 的信封能让解密卡死内存
+  if (N < 1024 || N > 1 << 20 || N & (N - 1)) return { ...KDF_PARAMS }
+  if (r < 1 || r > 16 || p < 1 || p > 4) return { ...KDF_PARAMS }
+  return { N, r, p }
+}
+
+function deriveKey(password, salt, params) {
+  return nodeCrypto.scryptSync(password, salt, BACKUP_KEY_LENGTH, params)
+}
+
 function encryptBackup(plainText, password) {
   const salt = nodeCrypto.randomBytes(16)
   const iv = nodeCrypto.randomBytes(12)
-  const key = nodeCrypto.scryptSync(password, salt, BACKUP_KEY_LENGTH)
+  const key = deriveKey(password, salt, KDF_PARAMS)
   const cipher = nodeCrypto.createCipheriv('aes-256-gcm', key, iv)
   const ciphertext = Buffer.concat([cipher.update(String(plainText), 'utf8'), cipher.final()])
   return JSON.stringify(
@@ -22,6 +42,7 @@ function encryptBackup(plainText, password) {
       format: BACKUP_FORMAT,
       v: BACKUP_VERSION,
       kdf: 'scrypt',
+      kdfParams: KDF_PARAMS,
       cipher: 'aes-256-gcm',
       salt: salt.toString('base64'),
       iv: iv.toString('base64'),
@@ -46,10 +67,10 @@ function decryptBackup(envelopeText, password) {
   if (envelope.v !== BACKUP_VERSION) {
     throw new Error(`不支持的备份版本：${envelope.v}`)
   }
-  const key = nodeCrypto.scryptSync(
+  const key = deriveKey(
     password,
     Buffer.from(envelope.salt, 'base64'),
-    BACKUP_KEY_LENGTH,
+    normalizeKdfParams(envelope.kdfParams),
   )
   const decipher = nodeCrypto.createDecipheriv(
     'aes-256-gcm',

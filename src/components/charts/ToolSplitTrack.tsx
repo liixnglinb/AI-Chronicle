@@ -9,7 +9,7 @@ interface ToolSplitTrackProps {
   ratios: ToolRatio[]
 }
 
-/** 工具占比比例带：一行看清各 AI Agent 的会话贡献分布 */
+/** 软件占比比例带：一行看清各 AI 软件的会话贡献分布 */
 export function ToolSplitTrack({ ratios }: ToolSplitTrackProps) {
   if (ratios.length === 0) return null
   return (

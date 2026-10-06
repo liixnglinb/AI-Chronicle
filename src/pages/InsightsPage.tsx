@@ -8,13 +8,14 @@ import {
   sessionDurationMinutes,
 } from '../lib/format'
 import { projectDisplayName } from '../lib/paths'
+import { matchSession } from '../lib/search'
 import { useViewState } from '../lib/useViewState'
 import { TrendBarChart, type DailyPoint } from '../components/charts/TrendBarChart'
 import { ToolSplitTrack, type ToolRatio } from '../components/charts/ToolSplitTrack'
 import { EmptyState, DesktopOnlyPage } from '../components/EmptyState'
 import { SkeletonPage } from '../components/Skeleton'
 import { ToolMark } from '../components/ToolMark'
-import { openLocalPath } from '../lib/desktop'
+import { openLocalWithToast } from '../lib/desktop'
 import { classNames } from '../lib/utils'
 import type { ToastMessage } from '../types'
 
@@ -36,7 +37,7 @@ const RANGE_OPTIONS: InsightRange[] = [7, 14, 30]
  * 颜色与 CSS 令牌同源，切换主题立即生效。
  */
 export function InsightsPage({ searchQuery, onToast }: InsightsPageProps) {
-  const { data, loading, isDesktop, settings } = useChronicle()
+  const { data, loading, isDesktop, settings, nowRef } = useChronicle()
   const showPaths = settings.showProjectPaths
   const [dayRange, setDayRange] = useViewState<InsightRange>(
     'insights-range',
@@ -52,28 +53,18 @@ export function InsightsPage({ searchQuery, onToast }: InsightsPageProps) {
   )
 
   const sessions = useMemo(() => {
-    const minTime = Date.now() - dayRange * 86_400_000
-    const q = searchQuery.trim().toLowerCase()
+    const minTime = nowRef - dayRange * 86_400_000
     return allSessions
       .filter((s) => (s.start || 0) >= minTime)
-      .filter(
-        (s) =>
-          !q ||
-          s.title.toLowerCase().includes(q) ||
-          s.project.toLowerCase().includes(q) ||
-          s.projectPath.toLowerCase().includes(q) ||
-          s.toolName.toLowerCase().includes(q) ||
-          s.model.toLowerCase().includes(q) ||
-          (s.artifacts ?? []).some((a) => a.name.toLowerCase().includes(q)),
-      )
+      .filter((s) => matchSession(s, searchQuery))
       .sort((a, b) => (b.start || 0) - (a.start || 0))
-  }, [allSessions, dayRange, searchQuery])
+  }, [allSessions, dayRange, searchQuery, nowRef])
 
   // 每日活跃时长趋势
   const dailyPoints = useMemo<DailyPoint[]>(() => {
     const map = new Map<string, number>()
     for (let i = dayRange - 1; i >= 0; i--) {
-      map.set(dayKeyOf(Date.now() - i * 86_400_000), 0)
+      map.set(dayKeyOf(nowRef - i * 86_400_000), 0)
     }
     for (const s of sessions) {
       if (!s.start) continue
@@ -86,7 +77,7 @@ export function InsightsPage({ searchQuery, onToast }: InsightsPageProps) {
       minutes,
       hours: Number((minutes / 60).toFixed(1)),
     }))
-  }, [sessions, dayRange])
+  }, [sessions, dayRange, nowRef])
 
   // 工具会话占比
   const toolSplit = useMemo<ToolRatio[]>(() => {
@@ -174,14 +165,7 @@ export function InsightsPage({ searchQuery, onToast }: InsightsPageProps) {
   }, [busiestDay])
 
   async function openFolder(path: string) {
-    const result = await openLocalPath(path)
-    if (!result.ok) {
-      onToast({
-        tone: 'warning',
-        title: '无法打开项目目录',
-        message: result.message || '目录可能已被移动或删除。',
-      })
-    }
+    await openLocalWithToast(onToast, path)
   }
 
   if (!isDesktop) {
@@ -195,12 +179,35 @@ export function InsightsPage({ searchQuery, onToast }: InsightsPageProps) {
 
   if (loading && !data) return <SkeletonPage cards={3} rows={4} banner={false} />
 
+  // 周期切换器在空态里也要能点：整页早退会把控件一起撤掉，
+  // 而空态文案正是让用户"切换到 30 天"。
+  const rangePills = (
+    <div className="desk-pill-group">
+      {RANGE_OPTIONS.map((r) => (
+        <button
+          key={r}
+          className={classNames('desk-pill-btn', dayRange === r && 'active')}
+          onClick={() => setDayRange(r)}
+          aria-pressed={dayRange === r}
+        >
+          近 {r} 天
+        </button>
+      ))}
+    </div>
+  )
+
   if (sessions.length === 0) {
     return (
-      <EmptyState
-        title="所选周期没有会话"
-        description="切换到 30 天，或产生新会话后重新采集。清空顶部过滤条件可查看全量。"
-      />
+      <div className="desk-insights-shell">
+        <div className="desk-insights-ctrl">
+          <span className="desk-ctrl-title">分析周期</span>
+          {rangePills}
+        </div>
+        <EmptyState
+          title="所选周期没有会话"
+          description="换上面的周期看看更长的区间，或产生新会话后重新采集。清空顶部过滤条件可查看全量。"
+        />
+      </div>
     )
   }
 
@@ -208,18 +215,7 @@ export function InsightsPage({ searchQuery, onToast }: InsightsPageProps) {
     <div className="desk-insights-shell">
       <div className="desk-insights-ctrl">
         <span className="desk-ctrl-title">分析周期</span>
-        <div className="desk-pill-group">
-          {RANGE_OPTIONS.map((r) => (
-            <button
-              key={r}
-              className={classNames('desk-pill-btn', dayRange === r && 'active')}
-              onClick={() => setDayRange(r)}
-              aria-pressed={dayRange === r}
-            >
-              近 {r} 天
-            </button>
-          ))}
-        </div>
+        {rangePills}
         <span className="desk-chart-note">
           {totals.days} 个活跃日 · {totals.turns} 轮 · {totals.artifacts} 个产出 ·{' '}
           {formatDuration(totals.minutes) || '跨度不足 1 分钟'}
@@ -243,7 +239,7 @@ export function InsightsPage({ searchQuery, onToast }: InsightsPageProps) {
       <div className="desk-panel desk-tool-split-card desk-enter">
         <div className="desk-panel-title">
           <Cpu size={14} />
-          <span>各 AI Agent 会话贡献分布</span>
+          <span>各 AI 软件会话贡献分布</span>
           <small>按会话数占比</small>
         </div>
         <ToolSplitTrack ratios={toolSplit} />

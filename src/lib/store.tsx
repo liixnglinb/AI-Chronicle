@@ -9,6 +9,12 @@ import {
   type ReactNode,
 } from 'react'
 import type { ChronicleData } from '../types'
+import { retryWithBackoff, TimeoutError, withTimeout } from './async'
+
+/** 本机采集耗时随会话文件数量变化：2026-10-06 实测 1160 个文件冷启动 28.1 秒、
+ *  命中缓存 1.0 秒。超过 60 秒认定 IPC 挂死，界面必须给出可读原因和重试入口，
+ *  否则会永远停在「正在读取本地会话…」。主进程对并发采集做了去重，超时后重试是安全的。 */
+const INGEST_TIMEOUT_MS = 60_000
 
 export type AutoRefreshInterval = 60 | 300 | 900 | 0
 
@@ -45,9 +51,18 @@ interface ChronicleContextValue {
   settings: ChronicleSettings
   updateSettings: (settings: Partial<ChronicleSettings>) => void
   refresh: (force?: boolean) => Promise<boolean>
-  /** 当前采集阶段：全量采集 3~15 秒，需要阶段感知而不是一个孤零零的转圈 */
+  /** 当前采集阶段：全量采集要几十秒，需要阶段感知而不是一个孤零零的转圈 */
   progress: IngestProgress | null
   update: UpdateStatusPayload | null
+  /**
+   * 界面里所有"现在"的统一参照：最近一次采集的时间戳（未采集到时为 0）。
+   *
+   * 原来各页在 render 里直接调 Date.now()，有两个后果：一是渲染不是纯函数
+   * （oxlint react(purity) 告警），二是 `useMemo(..., [])` 把"今日"冻在启动那一刻 ——
+   * 应用通宵开着时，"今日工作台"到第二天仍显示昨天的会话。改成跟随采集时间后，
+   * 最迟一个刷新周期内自动跨天，且同一屏的"今日"和"近 7 天"用的是同一个现在。
+   */
+  nowRef: number
 }
 
 const ChronicleContext = createContext<ChronicleContextValue | null>(null)
@@ -62,16 +77,20 @@ export function ChronicleProvider({ children }: { children: ReactNode }) {
   const isDesktop = !!window.desktopAPI
   const inFlight = useRef<Promise<boolean> | null>(null)
 
-  const load = useCallback((force = false): Promise<boolean> => {
+  const load = useCallback((force = false, allowRetry = false): Promise<boolean> => {
     if (!window.desktopAPI) return Promise.resolve(false)
     if (inFlight.current) return inFlight.current
     setLoading(true)
     setError(null)
+    const request = () =>
+      withTimeout(window.desktopAPI!.ingest(force), INGEST_TIMEOUT_MS, '本机采集')
     const operation = (async () => {
       // Defer the bridge call until the in-flight promise is assigned, even if it throws synchronously.
       await Promise.resolve()
       try {
-        const result = await window.desktopAPI!.ingest(force)
+        const result = allowRetry
+          ? await retryWithBackoff(request, 2, 800, (err) => !(err instanceof TimeoutError))
+          : await request()
         setData(result)
         return true
       } catch (err) {
@@ -86,8 +105,10 @@ export function ChronicleProvider({ children }: { children: ReactNode }) {
     return operation
   }, [])
 
+  // 冷启动最容易撞上磁盘未就绪、杀软逐个扫描会话文件这类瞬时拒绝，
+  // 退避重试一次；超时不重试（主进程会去重复用同一个挂死任务，重试只是再等 60 秒）。
   useEffect(() => {
-    void load(false)
+    void load(false, true)
   }, [load])
 
   const updateSettings = useCallback((next: Partial<ChronicleSettings>) => {
@@ -100,22 +121,24 @@ export function ChronicleProvider({ children }: { children: ReactNode }) {
 
   // 数据保活：窗口聚焦 / 按用户偏好静默刷新。
   // 采集层有文件级缓存，未变化的文件直接复用，代价很小。
+  // 「关闭定时刷新」只关掉轮询定时器：切回窗口时补一次采集不算定时轮询，
+  // 否则关掉后新会话要等到重启软件才看得见。
   useEffect(() => {
     if (!isDesktop) return undefined
     const onFocus = () => {
       if (document.hidden) return
       void load(false)
     }
-    const interval = settings.autoRefreshSeconds
-    if (!interval) return undefined
-
-    const timer = window.setInterval(() => {
-      onFocus()
-    }, interval * 1000)
     window.addEventListener('focus', onFocus)
     document.addEventListener('visibilitychange', onFocus)
+    const interval = settings.autoRefreshSeconds
+    const timer = interval
+      ? window.setInterval(() => {
+          onFocus()
+        }, interval * 1000)
+      : 0
     return () => {
-      window.clearInterval(timer)
+      if (timer) window.clearInterval(timer)
       window.removeEventListener('focus', onFocus)
       document.removeEventListener('visibilitychange', onFocus)
     }
@@ -158,6 +181,7 @@ export function ChronicleProvider({ children }: { children: ReactNode }) {
       refresh: load,
       progress,
       update,
+      nowRef: data?.generatedAt ?? 0,
     }),
     [data, loading, error, isDesktop, settings, updateSettings, load, progress, update],
   )

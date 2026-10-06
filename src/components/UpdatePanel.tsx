@@ -1,10 +1,14 @@
 import { useState } from 'react'
 import { RefreshCw } from 'lucide-react'
 import { useChronicle } from '../lib/store'
+import { callDesktop } from '../lib/main-call'
 import { Button } from './Button'
 import { ConfirmDialog } from './Modal'
 import { Switch } from './Switch'
 import type { ToastMessage } from '../types'
+
+/** 检查更新要先给 3 个镜像源测速（每个 6 秒）再取 latest.yml，25 秒还没回包就是网络卡死 */
+const UPDATE_CHECK_TIMEOUT_MS = 25_000
 
 /**
  * 安装确认弹窗。
@@ -52,11 +56,25 @@ export function useUpdateActions(onToast?: (toast: Omit<ToastMessage, 'id'>) => 
   const state = update?.state ?? 'idle'
   const disabled = !isDesktop || state === 'unavailable'
 
+  /**
+   * 主进程动作统一收口：超时或异常都必须给出可见提示，
+   * 否则界面会出现「点了没反应」的按钮（原来的 try/finally 只负责收尾，不报错）。
+   * 返回 null 表示失败提示已经弹出，调用方直接结束。
+   */
+  function callMain<T>(label: string, task: () => Promise<T>, timeoutMs?: number) {
+    return callDesktop<T>(onToast, label, task, timeoutMs)
+  }
+
   async function checkUpdate() {
     if (!window.desktopAPI || disabled) return
     setChecking(true)
     try {
-      const result = await window.desktopAPI.checkForUpdates()
+      const result = await callMain(
+        '检查更新',
+        () => window.desktopAPI!.checkForUpdates(),
+        UPDATE_CHECK_TIMEOUT_MS,
+      )
+      if (!result) return
       onToast?.({
         tone: result.state === 'available' ? 'info' : result.ok ? 'success' : 'warning',
         title:
@@ -64,7 +82,9 @@ export function useUpdateActions(onToast?: (toast: Omit<ToastMessage, 'id'>) => 
             ? `发现新版本 v${result.version}`
             : result.state === 'not-available'
               ? '已是最新版本'
-              : '更新检查完成',
+              : result.state === 'error'
+                ? '检查更新失败'
+                : '更新检查完成',
         message: result.message ?? '',
       })
     } finally {
@@ -77,7 +97,8 @@ export function useUpdateActions(onToast?: (toast: Omit<ToastMessage, 'id'>) => 
     if (!window.desktopAPI || state !== 'available') return
     setDownloading(true)
     try {
-      const result = await window.desktopAPI.downloadUpdate()
+      const result = await callMain('开始下载', () => window.desktopAPI!.downloadUpdate())
+      if (!result) return
       onToast?.({
         tone: result.ok ? 'success' : 'warning',
         title: result.ok ? `v${version} 下载完成` : '下载未能启动',
@@ -89,7 +110,10 @@ export function useUpdateActions(onToast?: (toast: Omit<ToastMessage, 'id'>) => 
   }
 
   async function setAutoDownload(enabled: boolean) {
-    await window.desktopAPI?.setUpdateAutoDownload(enabled)
+    const result = await callMain('保存下载偏好', () =>
+      window.desktopAPI!.setUpdateAutoDownload(enabled),
+    )
+    if (!result) return
     onToast?.({
       tone: 'info',
       title: enabled ? '已开启自动下载' : '已关闭自动下载',
@@ -104,26 +128,32 @@ export function useUpdateActions(onToast?: (toast: Omit<ToastMessage, 'id'>) => 
     setConfirmInstall(true)
   }
 
+  // 安装刻意不设超时：quitAndInstall 成功后本窗口会被销毁，IPC 永远不回包，
+  // 误报超时等于在正在装的时候告诉用户"失败了"。
   async function runInstall() {
-    setInstalling(true)
-    try {
-      const result = await window.desktopAPI?.installUpdate()
-      if (result && !result.ok && !result.canceled) {
-        onToast?.({
-          tone: 'warning',
-          title: '安装未完成',
-          message: result.message ?? '',
-        })
-      }
+    if (!window.desktopAPI) {
       setConfirmInstall(false)
-    } finally {
-      setInstalling(false)
+      return
+    }
+    setInstalling(true)
+    const result = await callMain('安装更新', () => window.desktopAPI!.installUpdate())
+    setInstalling(false)
+    setConfirmInstall(false)
+    if (result && !result.ok && !result.canceled) {
+      onToast?.({
+        tone: 'warning',
+        title: '安装未完成',
+        message: result.message ?? '',
+      })
     }
   }
 
   async function skipVersion() {
-    if (!version) return
-    await window.desktopAPI?.setSkippedUpdate(version)
+    if (!version || !window.desktopAPI) return
+    const result = await callMain(`跳过 v${version}`, () =>
+      window.desktopAPI!.setSkippedUpdate(version),
+    )
+    if (!result) return
     onToast?.({
       tone: 'info',
       title: `已跳过 v${version}`,
@@ -132,7 +162,8 @@ export function useUpdateActions(onToast?: (toast: Omit<ToastMessage, 'id'>) => 
   }
 
   async function restoreVersion() {
-    await window.desktopAPI?.setSkippedUpdate(null)
+    const result = await callMain('恢复更新提示', () => window.desktopAPI!.setSkippedUpdate(null))
+    if (!result) return
     onToast?.({ tone: 'info', title: '已恢复更新提示', message: '下次检查会重新提示新版本。' })
   }
 

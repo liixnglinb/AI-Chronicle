@@ -4,7 +4,7 @@ import { useChronicle } from '../lib/store'
 import { dayKeyOf, formatDayLabelShort, formatTimeRange } from '../lib/format'
 import { toCrumbs } from '../lib/paths'
 import { useIncrementalList } from '../lib/useIncrementalList'
-import { openLocalPath } from '../lib/desktop'
+import { openLocalWithToast } from '../lib/desktop'
 import { EmptyState, DesktopOnlyPage } from '../components/EmptyState'
 import { SkeletonPage } from '../components/Skeleton'
 import type { SessionRecord, ToastMessage } from '../types'
@@ -98,14 +98,7 @@ export function ProjectsPage({ searchQuery, onClearSearch, onToast }: ProjectsPa
   }
 
   async function handleOpenFolder(path: string) {
-    const result = await openLocalPath(path)
-    if (!result.ok) {
-      onToast({
-        tone: 'warning',
-        title: '定位失败',
-        message: result.message || '目录可能已被移动或删除',
-      })
-    }
+    await openLocalWithToast(onToast, path)
   }
 
   if (!isDesktop) {
