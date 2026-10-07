@@ -81,6 +81,9 @@ app.on('child-process-gone', (_event, details) => {
 // 记住窗口位置、尺寸、最大化与界面缩放，下次启动原样恢复。
 // 位置会做「是否还落在某个显示器工作区内」的校验，防止外接屏拔掉后窗口跑到屏幕外。
 const DEFAULT_WINDOW = { width: 1440, height: 960 }
+// 必须等于 CSS 的 --vr-titlebar-height（src/styles/voyra-tokens.css）。
+// 原生 titleBarOverlay 是从窗口右上角往下画这么高，比标题栏矮一行就会压到下面那行的控件上。
+const TITLEBAR_HEIGHT = 32
 const ZOOM_LEVELS = [0.9, 1, 1.1, 1.25]
 
 function windowStateFile() {
@@ -364,7 +367,7 @@ function createWindow() {
             // 与 CSS --chrome-bg 暗色档一致；渲染层挂载后会按实际主题同步
             color: '#121315',
             symbolColor: '#f6f7f8',
-            height: 40,
+            height: TITLEBAR_HEIGHT,
           },
         }
       : {}),
@@ -1196,7 +1199,7 @@ ipcMain.handle('desktop:set-window-theme', (event, theme) => {
   if (!win || typeof win.setTitleBarOverlay !== 'function') return { ok: false }
   const palette = CHROME_COLORS[theme === 'dark' ? 'dark' : 'light']
   try {
-    win.setTitleBarOverlay({ ...palette, height: 40 })
+    win.setTitleBarOverlay({ ...palette, height: TITLEBAR_HEIGHT })
     return { ok: true }
   } catch {
     return { ok: false }

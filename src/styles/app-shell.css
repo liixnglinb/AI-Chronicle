@@ -52,6 +52,16 @@
   font-size: var(--vr-text-2xs);
   color: var(--vr-text-faint);
   font-family: var(--vr-font-mono);
+  /* 中文串没有可断行点，min-width 默认值会让整条状态当成一个不可收缩的整体，
+     一旦变长就顶穿 padding-right 的 152px 原生按钮安全区。 */
+  min-width: 0;
+}
+
+.desk-window-status > span:not(.desk-pulse-indicator) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .desk-pulse-indicator {
@@ -305,18 +315,19 @@
 
 .desk-search-ico {
   position: absolute;
-  left: 9px;
+  left: 10px;
   color: var(--vr-text-faint);
   pointer-events: none;
 }
 
 .desk-stage-search {
-  width: 220px;
+  width: 240px;
   height: 28px;
   border-radius: var(--vr-radius-sm);
   background: var(--vr-bg-subtle);
   border: 1px solid var(--vr-border-subtle);
-  padding: 0 28px 0 var(--vr-sp-4);
+  /* 左侧 32px 是图标槽（图标 10 + 13 宽 + 9 间隙），与 .desk-field-input 同一套内距 */
+  padding: 0 28px 0 32px;
   font-family: inherit;
   font-size: var(--vr-text-xs);
   color: var(--vr-text-main);
@@ -332,7 +343,7 @@
 }
 
 .desk-stage-search:focus {
-  width: 280px;
+  width: 300px;
   background: var(--vr-surface);
   border-color: var(--vr-text-muted);
 }
@@ -364,7 +375,8 @@
   gap: 2px;
   height: 22px;
   padding: 0 6px;
-  border-radius: var(--vr-radius-xs);
+  /* 与同一行的输入框/图标按钮共用 --vr-radius-sm，三个控件一种圆角 */
+  border-radius: var(--vr-radius-sm);
   background: var(--vr-surface-active);
   border: 1px solid var(--vr-border-subtle);
   color: var(--vr-text-muted);
