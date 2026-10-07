@@ -1,4 +1,4 @@
-import { toolIconUrl, toolNeedsName } from '../data/tools'
+import { toolIconUrl } from '../data/tools'
 import { classNames } from '../lib/utils'
 
 interface ToolMarkProps {
@@ -7,8 +7,6 @@ interface ToolMarkProps {
   color: string
   /** 图标边长（CSS px） */
   size?: number
-  /** 强制带上名字（筛选图例这类需要读作文字标签的位置） */
-  forceName?: boolean
   className?: string
 }
 
@@ -34,19 +32,13 @@ function inkOn(hex: string): string {
 }
 
 /**
- * 软件标识。默认只显品牌图；WorkBuddy 两款共用一张图、Agnes / CatPaw 没有图，
- * 这几种情况图标不足以唯一识别，会自动带上名字（见 src/data/tools.ts 的说明）。
+ * 软件标识 = 品牌图 + 名字，两者一起出现。
+ * 只显图标在这一款软件上不成立：WorkBuddy 与 WorkBuddy AI 共用同一张官方图，
+ * Agnes / CatPaw 没有图标资产（退回首字母色块），而各家图标彼此也像——
+ * 用户反馈过"这两个没有显示名称"，所以不再按图标可辨识度决定要不要名字。
  */
-export function ToolMark({
-  tool,
-  name,
-  color,
-  size = 16,
-  forceName = false,
-  className,
-}: ToolMarkProps) {
+export function ToolMark({ tool, name, color, size = 16, className }: ToolMarkProps) {
   const src = toolIconUrl(tool)
-  const withName = forceName || toolNeedsName(tool)
 
   return (
     <span className={classNames('desk-tool-mark', className)} title={name}>
@@ -74,7 +66,7 @@ export function ToolMark({
           {(name.charAt(0) || '?').toUpperCase()}
         </span>
       )}
-      {withName && <span className="desk-tool-mark-name">{name}</span>}
+      <span className="desk-tool-mark-name">{name}</span>
     </span>
   )
 }

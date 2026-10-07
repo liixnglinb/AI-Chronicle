@@ -167,7 +167,7 @@ export function HistoryPage({ searchQuery, onClearSearch, onToast }: HistoryPage
                 onClick={() => setToolFilter(t.id)}
                 aria-pressed={toolFilter === t.id}
               >
-                <ToolMark tool={t.id} name={t.name} color={t.color} size={14} forceName />
+                <ToolMark tool={t.id} name={t.name} color={t.color} size={14} />
                 <small className="desk-tool-chip-num">{t.count}</small>
               </button>
             ))}
@@ -235,9 +235,7 @@ export function HistoryPage({ searchQuery, onClearSearch, onToast }: HistoryPage
                       </span>
 
                       <span className="desk-row-tool">
-                        <span className="desk-tool-badge" style={{ borderColor: s.toolColor }}>
-                          <ToolMark tool={s.tool} name={s.toolName} color={s.toolColor} size={15} />
-                        </span>
+                        <ToolMark tool={s.tool} name={s.toolName} color={s.toolColor} size={15} />
                       </span>
 
                       <span className="desk-row-main">

@@ -7,9 +7,9 @@
 //   - Claude Code、Codex 是命令行工具、本机没有程序图标，用 simple-icons 的官方标识，
 //     按各自品牌色着色（纯黑版在暗色档几乎看不见）
 //
-// 两个已知缺口，界面据此决定「只显图标」还是「图标 + 名字」：
+// 为什么界面一律「图标 + 名字」而不是只显图标：
 //   - WorkBuddy 与 WorkBuddy AI 的官方图**是同一张**（两文件 md5 相同），只显图标分不开
-//   - Agnes、CatPaw 本机没有可用图标资产（安装目录已空），退回首字母色块
+//   - Agnes、CatPaw 本机没有可用图标资产（安装目录已空），只能退回首字母色块
 export const TOOL_ICON: Record<string, string> = {
   'claude-code': 'tools/claude-code.svg',
   codex: 'tools/codex.svg',
@@ -23,14 +23,7 @@ export const TOOL_ICON: Record<string, string> = {
   dsh: 'tools/dsh.png',
 }
 
-/** 图标不足以唯一识别的软件：这些位置必须带上名字 */
-export const TOOL_NEEDS_NAME = new Set(['workbuddy', 'workbuddy-ai', 'agnes', 'catpaw'])
-
 export function toolIconUrl(tool: string): string | null {
   const file = TOOL_ICON[tool]
   return file ? import.meta.env.BASE_URL + file : null
-}
-
-export function toolNeedsName(tool: string): boolean {
-  return TOOL_NEEDS_NAME.has(tool)
 }

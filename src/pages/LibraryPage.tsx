@@ -317,9 +317,7 @@ export function LibraryPage({ searchQuery, onClearSearch, onToast }: LibraryPage
                 )}
 
                 <span className="desk-col-src">
-                  <span className="desk-src-tag" style={{ borderColor: art.toolColor }}>
-                    <ToolMark tool={art.tool} name={art.toolName} color={art.toolColor} size={15} />
-                  </span>
+                  <ToolMark tool={art.tool} name={art.toolName} color={art.toolColor} size={15} />
                 </span>
 
                 <span className="desk-col-session" title={art.sessionTitle}>
