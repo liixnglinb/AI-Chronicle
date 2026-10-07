@@ -471,5 +471,183 @@
   line-height: 1.6;
 }
 
+/* ============================ 模型辅助 ============================ */
+.desk-ai-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--vr-sp-4);
+}
+
+.desk-ai-privacy {
+  margin: 0;
+  padding: var(--vr-sp-3) var(--vr-sp-4);
+  background: var(--vr-bg-subtle);
+  border-left: 2px solid var(--vr-info);
+  font-size: var(--vr-text-xs);
+  line-height: 1.7;
+  color: var(--vr-text-muted);
+}
+
+.desk-ai-privacy strong {
+  color: var(--vr-text-main);
+  font-weight: 600;
+}
+
+.desk-ai-warn {
+  margin: 0;
+  padding: var(--vr-sp-3) var(--vr-sp-4);
+  background: var(--vr-warning-bg);
+  border-left: 2px solid var(--vr-warning);
+  font-size: var(--vr-text-xs);
+  line-height: 1.7;
+  color: var(--vr-text-main);
+}
+
+.desk-ai-empty {
+  margin: 0;
+  font-size: var(--vr-text-xs);
+  color: var(--vr-text-faint);
+}
+
+.desk-ai-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--vr-sp-3);
+}
+
+.desk-ai-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: var(--vr-sp-3) var(--vr-sp-4);
+  border: 1px solid var(--vr-border-subtle);
+  border-radius: var(--vr-radius-sm);
+  background: var(--vr-surface);
+}
+
+.desk-ai-item.is-active {
+  border-color: var(--vr-border-strong);
+}
+
+.desk-ai-item-head {
+  display: flex;
+  align-items: center;
+  gap: var(--vr-sp-2);
+  flex-wrap: wrap;
+}
+
+.desk-ai-item-head strong {
+  font-size: var(--vr-text-sm);
+}
+
+.desk-ai-badge,
+.desk-ai-proto,
+.desk-ai-key {
+  font-size: var(--vr-text-2xs);
+  padding: 1px 6px;
+  border-radius: var(--vr-radius-xs);
+  background: var(--vr-bg-subtle);
+  border: 1px solid var(--vr-border-subtle);
+  color: var(--vr-text-muted);
+}
+
+.desk-ai-badge {
+  background: var(--vr-surface-active);
+  color: var(--vr-text-main);
+  font-weight: 600;
+}
+
+.desk-ai-url,
+.desk-ai-model {
+  font-family: var(--vr-font-mono);
+  font-size: var(--vr-text-2xs);
+  color: var(--vr-text-faint);
+  word-break: break-all;
+}
+
+.desk-ai-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--vr-sp-2);
+  flex-wrap: wrap;
+  margin-top: var(--vr-sp-2);
+}
+
+.desk-ai-danger {
+  color: var(--vr-danger);
+}
+
+.desk-ai-presets {
+  display: flex;
+  align-items: center;
+  gap: var(--vr-sp-2);
+  flex-wrap: wrap;
+}
+
+.desk-ai-presets-label {
+  font-size: var(--vr-text-xs);
+  color: var(--vr-text-faint);
+}
+
+.desk-ai-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--vr-sp-3);
+  padding: var(--vr-sp-4);
+  border: 1px solid var(--vr-border-subtle);
+  border-radius: var(--vr-radius-sm);
+  background: var(--vr-bg-subtle);
+}
+
+.desk-ai-form-title {
+  display: flex;
+  align-items: center;
+  gap: var(--vr-sp-2);
+  margin: 0;
+  font-size: var(--vr-text-sm);
+  font-weight: 600;
+}
+
+.desk-ai-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--vr-sp-2);
+}
+
+.desk-ai-field-label {
+  display: flex;
+  align-items: baseline;
+  gap: var(--vr-sp-2);
+  font-size: var(--vr-text-xs);
+  font-weight: 600;
+  color: var(--vr-text-main);
+}
+
+.desk-ai-field-label small {
+  font-weight: 400;
+  color: var(--vr-text-faint);
+}
+
+.desk-ai-key-row {
+  display: flex;
+  align-items: center;
+  gap: var(--vr-sp-2);
+  flex-wrap: wrap;
+}
+
+.desk-ai-key-row .desk-field-input {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+.desk-ai-form-actions {
+  display: flex;
+  gap: var(--vr-sp-2);
+}
+
 /* 原 @media (max-width: 900px) 的"设置页改单列"规则已删：窗口 minWidth=960，
-   永远命不中；实测 960 宽下侧栏 178px + 卡片 512px 无溢出，不需要改列。 */
+   永远命不中；实测 960 宽下侧栏 178px + 卡片 512px 无溢出，不需要改列。
+   模型辅助区同样按 960 档实测过，不再另加断点。 */

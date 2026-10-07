@@ -100,6 +100,79 @@ declare global {
   /** 采集阶段：枚举 → 解析 → 挂载成果 → 完成 */
   type IngestPhase = 'enumerate' | 'parse' | 'artifacts' | 'done'
 
+  /** 模型通道：主进程永远不回传密钥，只告诉界面「有没有」 */
+  interface AiChannelPublic {
+    id: string
+    name: string
+    protocol: 'openai' | 'anthropic'
+    baseUrl: string
+    model: string
+    hasKey: boolean
+  }
+
+  interface AiConfigState {
+    ok: boolean
+    message?: string
+    activeId?: string | null
+    channels?: AiChannelPublic[]
+    keyStorage?: 'available' | 'unavailable'
+  }
+
+  interface AiMutationResult {
+    ok: boolean
+    message?: string
+    channel?: AiChannelPublic
+    activeId?: string | null
+    channels?: AiChannelPublic[]
+  }
+
+  interface AiTestResult {
+    ok: boolean
+    message?: string
+    ms?: number
+    endpoint?: string
+    reply?: string
+  }
+
+  interface DayPromptMeta {
+    includedMessages: number
+    omittedMessages: number
+    omittedChars: number
+    chars: number
+    budgetHit: boolean
+    truncated: boolean
+    unreadable: Array<{ tool: string; toolName: string; reason: string }>
+  }
+
+  interface DayPayloadPreview {
+    ok: boolean
+    message?: string
+    text?: string
+    system?: string
+    meta?: DayPromptMeta
+  }
+
+  interface DaySummary {
+    text: string
+    model: string
+    provider: string
+    generatedAt: number
+    chars: number
+    includedMessages: number
+  }
+
+  interface SummarizeResult {
+    ok: boolean
+    requestId: string
+    dayKey?: string
+    canceled?: boolean
+    message?: string
+    ms?: number
+    stored?: boolean
+    summary?: DaySummary
+    meta?: DayPromptMeta
+  }
+
   interface IngestProgress {
     phase: IngestPhase
     detail: string
@@ -166,6 +239,23 @@ declare global {
       openUpdatePage: () => Promise<{ ok: boolean }>
       onUpdateStatus: (callback: (status: UpdateStatusPayload) => void) => () => void
       onIngestProgress: (callback: (progress: IngestProgress) => void) => () => void
+      /** 模型辅助总结：配置、测试、预览与生成。密钥只留在主进程。 */
+      getAiConfig: () => Promise<AiConfigState>
+      saveAiChannel: (
+        input: Partial<AiChannelPublic> & { key?: string },
+      ) => Promise<AiMutationResult>
+      deleteAiChannel: (id: string) => Promise<AiMutationResult>
+      setActiveAiChannel: (id: string) => Promise<AiMutationResult>
+      testAiChannel: (id: string) => Promise<AiTestResult>
+      previewDayPayload: (dayKey: string) => Promise<DayPayloadPreview>
+      summarizeDay: (payload: {
+        dayKey: string
+        id?: string
+        requestId?: string
+      }) => Promise<SummarizeResult>
+      cancelSummarize: (requestId: string) => Promise<{ ok: boolean; message?: string }>
+      getDaySummaries: () => Promise<{ ok: boolean; summaries: Record<string, DaySummary> }>
+      deleteDaySummary: (dayKey: string) => Promise<{ ok: boolean }>
     }
   }
 }

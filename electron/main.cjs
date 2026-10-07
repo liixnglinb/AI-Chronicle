@@ -18,6 +18,9 @@ const os = require('node:os')
 const { encryptBackup, decryptBackup } = require('./backup-crypto.cjs')
 const { autoUpdater } = require('electron-updater')
 const { collectAll } = require('./ingest.cjs')
+const { createAiConfigStore } = require('./ai-config.cjs')
+const { buildChatRequest, requestChat, AI_TIMEOUT_MS } = require('./ai-client.cjs')
+const { collectDayUserTexts, buildSummaryPrompt } = require('./day-prompts.cjs')
 
 const isDevelopment = !app.isPackaged
 const devServerUrl = process.env.ELECTRON_START_URL
@@ -1323,6 +1326,272 @@ ipcMain.handle('desktop:ingest', async (_event, force) => {
   }
   return result
 })
+
+// ---------------------------------------------------------------- 模型辅助总结
+// 这是本软件唯一会把内容发出去的代码。默认无通道、不联网；
+// 只有用户在设置中心填好地址、并在当天面板上主动点「生成总结」时才请求那个地址。
+// 密钥只在主进程内解密，绝不通过 IPC 回传，也不写进日志。
+
+const AI_SQLITE_PATHS = {
+  zcode: '~/.zcode/cli/db/db.sqlite',
+  opencode: '~/.local/share/opencode/opencode.db',
+  hermes: '~/.hermes/state.db',
+  agnes: '~/.agnes/data/sessions/sessions.db',
+}
+
+let aiStore = null
+
+function getAiStore() {
+  if (!aiStore) {
+    aiStore = createAiConfigStore({
+      file: path.join(app.getPath('userData'), 'ai-config.json'),
+      crypto: buildCacheCrypto(),
+    })
+  }
+  return aiStore
+}
+
+function summariesFile() {
+  return path.join(app.getPath('userData'), 'ai-summaries.json')
+}
+
+function loadSummaries() {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(summariesFile(), 'utf8'))
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    return parsed
+  } catch {
+    return {}
+  }
+}
+
+function saveSummary(dayKey, entry) {
+  const all = loadSummaries()
+  all[dayKey] = entry
+  try {
+    fs.writeFileSync(summariesFile(), JSON.stringify(all, null, 2), 'utf8')
+    return true
+  } catch {
+    return false
+  }
+}
+
+function removeSummary(dayKey) {
+  const all = loadSummaries()
+  if (!(dayKey in all)) return false
+  delete all[dayKey]
+  try {
+    fs.writeFileSync(summariesFile(), JSON.stringify(all, null, 2), 'utf8')
+  } catch {
+    return false
+  }
+  return true
+}
+
+function dayBounds(dayKey) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dayKey || ''))
+  if (!m) return null
+  const start = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).getTime()
+  return { start, end: start + 86_400_000 }
+}
+
+function dayStatsOf(sessions) {
+  const tools = new Set()
+  let turns = 0
+  let minutes = 0
+  let artifacts = 0
+  for (const s of sessions) {
+    turns += s.turns || 0
+    if (s.start && s.end && s.end > s.start) minutes += Math.round((s.end - s.start) / 60_000)
+    if (s.toolName) tools.add(s.toolName)
+    artifacts += Array.isArray(s.artifacts) ? s.artifacts.length : 0
+  }
+  return { count: sessions.length, turns, minutes, tools: [...tools], artifacts }
+}
+
+/** 组装"这一天要发给模型的东西"。全程只读本机文件，不发任何请求。 */
+async function composeDayPrompt(dayKey) {
+  const bounds = dayBounds(dayKey)
+  if (!bounds) return { ok: false, message: '日期格式不正确' }
+  const data = ingestResult || (await runIngest(false))
+  const sessions = (data?.sessions || []).filter(
+    (s) => s.start && s.start >= bounds.start && s.start < bounds.end,
+  )
+  if (!sessions.length) return { ok: false, message: '这一天没有会话记录，无需总结' }
+  const read = await collectDayUserTexts({
+    sessions,
+    cachePath: path.join(app.getPath('userData'), 'chronicle-ingest-cache.json'),
+    crypto: buildCacheCrypto(),
+    sqlitePaths: Object.fromEntries(
+      Object.entries(AI_SQLITE_PATHS).map(([tool, spec]) => [tool, expandPath(spec)]),
+    ),
+  })
+  const prompt = buildSummaryPrompt({
+    dayKey,
+    stats: dayStatsOf(sessions),
+    items: read.items,
+    unreadable: read.unreadable,
+    truncated: read.truncated,
+  })
+  return { ok: true, prompt, sessions }
+}
+
+const aiInFlight = new Map()
+
+ipcMain.handle('desktop:get-ai-config', () => {
+  try {
+    return getAiStore().state()
+  } catch (error) {
+    return { ok: false, message: String(error?.message || error).slice(0, 120) }
+  }
+})
+
+ipcMain.handle('desktop:save-ai-channel', (_event, input) => {
+  try {
+    return getAiStore().upsert(input && typeof input === 'object' ? input : {})
+  } catch (error) {
+    return { ok: false, message: String(error?.message || error).slice(0, 120) }
+  }
+})
+
+ipcMain.handle('desktop:delete-ai-channel', (_event, id) => {
+  try {
+    return getAiStore().remove(String(id || ''))
+  } catch (error) {
+    return { ok: false, message: String(error?.message || error).slice(0, 120) }
+  }
+})
+
+ipcMain.handle('desktop:set-active-ai-channel', (_event, id) => {
+  try {
+    return getAiStore().setActive(String(id || ''))
+  } catch (error) {
+    return { ok: false, message: String(error?.message || error).slice(0, 120) }
+  }
+})
+
+ipcMain.handle('desktop:test-ai-channel', async (_event, payload) => {
+  const resolved = getAiStore().resolveForRequest(String(payload?.id || ''))
+  if (!resolved.ok) return { ok: false, message: resolved.message }
+  const request = buildChatRequest({
+    protocol: resolved.channel.protocol,
+    baseUrl: resolved.channel.baseUrl,
+    key: resolved.channel.key,
+    model: resolved.channel.model,
+    prompt: { system: '连接测试。只回复两个字：正常', user: 'ping' },
+    maxTokens: 16,
+  })
+  const started = Date.now()
+  const result = await requestChat({
+    netImpl: net,
+    request,
+    timeoutMs: Math.min(AI_TIMEOUT_MS, 15_000),
+  })
+  if (!result.ok) {
+    return { ok: false, message: result.message, ms: Date.now() - started, endpoint: request.url }
+  }
+  return {
+    ok: true,
+    ms: Date.now() - started,
+    endpoint: request.url,
+    reply: String(result.text).slice(0, 60),
+  }
+})
+
+ipcMain.handle('desktop:preview-day-payload', async (_event, payload) => {
+  const composed = await composeDayPrompt(String(payload?.dayKey || ''))
+  if (!composed.ok) return composed
+  return {
+    ok: true,
+    text: composed.prompt.user,
+    system: composed.prompt.system,
+    meta: composed.prompt.meta,
+  }
+})
+
+ipcMain.handle('desktop:summarize-day', async (_event, payload) => {
+  const dayKey = String(payload?.dayKey || '')
+  const requestId = String(payload?.requestId || `req_${Date.now()}`)
+  // 「取消」可能在组装正文阶段就到达（读缓存 + 重读当天文件约 1 秒），那时请求还没发出。
+  // 只注册 abort 会漏掉这一窗口的取消，所以先立 aborted 标记，请求发出时再补一刀。
+  let aborted = false
+  let abortLive = null
+  aiInFlight.set(requestId, () => {
+    aborted = true
+    if (abortLive) abortLive()
+  })
+  try {
+    const resolved = getAiStore().resolveForRequest(String(payload?.id || ''))
+    if (!resolved.ok) return { ok: false, requestId, message: resolved.message }
+    if (aborted) return { ok: false, canceled: true, requestId, message: '已取消' }
+    const composed = await composeDayPrompt(dayKey)
+    if (!composed.ok) return { ok: false, requestId, message: composed.message }
+    if (aborted) return { ok: false, canceled: true, requestId, message: '已取消' }
+
+    const request = buildChatRequest({
+      protocol: resolved.channel.protocol,
+      baseUrl: resolved.channel.baseUrl,
+      key: resolved.channel.key,
+      model: resolved.channel.model,
+      prompt: composed.prompt,
+    })
+    const started = Date.now()
+    const result = await requestChat({
+      netImpl: net,
+      request,
+      timeoutMs: AI_TIMEOUT_MS,
+      onAbortRegister: (abort) => {
+        abortLive = abort
+        if (aborted) abort()
+      },
+    })
+    if (aborted) return { ok: false, canceled: true, requestId, message: '已取消' }
+    if (!result.ok) {
+      return {
+        ok: false,
+        canceled: !!result.canceled,
+        requestId,
+        message: result.message,
+        ms: Date.now() - started,
+      }
+    }
+    const entry = {
+      text: result.text,
+      model: resolved.channel.model,
+      provider: resolved.channel.name,
+      generatedAt: Date.now(),
+      chars: composed.prompt.meta.chars,
+      includedMessages: composed.prompt.meta.includedMessages,
+    }
+    const stored = saveSummary(dayKey, entry)
+    return {
+      ok: true,
+      requestId,
+      dayKey,
+      summary: entry,
+      meta: composed.prompt.meta,
+      ms: Date.now() - started,
+      stored,
+      message: stored ? '' : '总结已生成，但写入本机失败（磁盘或权限），关掉这天就看不到。',
+    }
+  } finally {
+    aiInFlight.delete(requestId)
+  }
+})
+
+ipcMain.handle('desktop:cancel-summarize', (_event, requestId) => {
+  const abort = aiInFlight.get(String(requestId || ''))
+  if (!abort) return { ok: false, message: '没有在途请求' }
+  abort()
+  aiInFlight.delete(String(requestId))
+  return { ok: true }
+})
+
+ipcMain.handle('desktop:get-day-summaries', () => ({ ok: true, summaries: loadSummaries() }))
+
+ipcMain.handle('desktop:delete-day-summary', (_event, dayKey) => ({
+  ok: removeSummary(String(dayKey || '')),
+}))
 
 // 渲染进程重载（崩溃后一键重新加载 / 手动刷新）时，主进程的更新状态还在，
 // 但推送早就发完了 —— 必须给一个拉取入口，否则界面会退回「尚未检查」。

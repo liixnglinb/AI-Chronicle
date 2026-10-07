@@ -1,5 +1,13 @@
 // 展示格式化工具（工作日志视角：时间 / 轮次 / 文件，不含 token 计价）
 
+/** 采集阶段短名：右上角状态位宽度有限，放不下横幅那种长句，完整描述留在 title 里 */
+export const INGEST_PHASE_LABELS: Record<IngestPhase, string> = {
+  enumerate: '枚举文件',
+  parse: '解析日志',
+  artifacts: '挂载成果',
+  done: '完成',
+}
+
 export function formatClock(ms: number): string {
   const d = new Date(ms)
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`

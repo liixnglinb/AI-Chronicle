@@ -63,6 +63,12 @@ interface ChronicleContextValue {
    * 最迟一个刷新周期内自动跨天，且同一屏的"今日"和"近 7 天"用的是同一个现在。
    */
   nowRef: number
+  /**
+   * 非采集类的全机活动提示（例如「校验数据源中」）。
+   * 右上角只有这一个状态位，页面各自转圈会让用户以为软件空着。
+   */
+  busyHint: string | null
+  setBusyHint: (hint: string | null) => void
 }
 
 const ChronicleContext = createContext<ChronicleContextValue | null>(null)
@@ -73,6 +79,7 @@ export function ChronicleProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null)
   const [progress, setProgress] = useState<IngestProgress | null>(null)
   const [update, setUpdate] = useState<ChronicleContextValue['update']>(null)
+  const [busyHint, setBusyHint] = useState<string | null>(null)
   const [settings, setSettings] = useState<ChronicleSettings>(loadSettings)
   const isDesktop = !!window.desktopAPI
   const inFlight = useRef<Promise<boolean> | null>(null)
@@ -182,8 +189,10 @@ export function ChronicleProvider({ children }: { children: ReactNode }) {
       progress,
       update,
       nowRef: data?.generatedAt ?? 0,
+      busyHint,
+      setBusyHint,
     }),
-    [data, loading, error, isDesktop, settings, updateSettings, load, progress, update],
+    [data, loading, error, isDesktop, settings, updateSettings, load, progress, update, busyHint],
   )
 
   return <ChronicleContext.Provider value={value}>{children}</ChronicleContext.Provider>

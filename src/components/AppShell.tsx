@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Activity, Command, Moon, RefreshCw, Search, ShieldCheck, Sun, X } from 'lucide-react'
 import { navItems } from '../data/nav'
 import { useChronicle } from '../lib/store'
-import { formatClock } from '../lib/format'
+import { formatClock, INGEST_PHASE_LABELS } from '../lib/format'
 import { classNames } from '../lib/utils'
 import type { ToastMessage, ViewId } from '../types'
 
@@ -31,7 +31,7 @@ export function AppShell({
   onThemeToggle,
   onToast,
 }: AppShellProps) {
-  const { data, loading, error, refresh, progress, settings } = useChronicle()
+  const { data, loading, error, refresh, progress, settings, busyHint } = useChronicle()
   const [refreshing, setRefreshing] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
 
@@ -41,8 +41,11 @@ export function AppShell({
   const connectedCount = data?.sources.filter((s) => s.status === 'connected').length ?? 0
   const failedCount = data?.sources.filter((s) => s.status === 'error').length ?? 0
 
-  // 心跳状态：采集出错 > 采集中 > 就绪
-  const heartbeat = error ? 'error' : loading ? 'busy' : 'live'
+  // 心跳状态：采集出错 > 有活动（采集或校验数据源）> 就绪
+  const heartbeat = error ? 'error' : loading || busyHint ? 'busy' : 'live'
+  const statusTitle = loading
+    ? (progress?.detail ?? '正在读取本机 AI 软件的会话日志')
+    : (busyHint ?? undefined)
 
   async function handleManualRefresh() {
     setRefreshing(true)
@@ -84,7 +87,13 @@ export function AppShell({
           <Activity size={13} />
           <span>AI 轨迹 · 观测台</span>
         </div>
-        <div className="desk-window-status">
+        <div
+          className="desk-window-status"
+          role="status"
+          aria-live="polite"
+          aria-busy={heartbeat === 'busy'}
+          title={statusTitle}
+        >
           <span
             className={classNames(
               'desk-pulse-indicator',
@@ -94,14 +103,18 @@ export function AppShell({
           />
           <span>
             {loading
-              ? (progress?.detail ?? '正在读取本地会话…')
-              : error
-                ? '采集异常'
-                : data
-                  ? `就绪 · ${data.sessions.length} 会话 · ${connectedCount} 源 · ${formatClock(
-                      data.generatedAt,
-                    )} 刷新`
-                  : '等待首次采集'}
+              ? progress
+                ? `采集中 · ${INGEST_PHASE_LABELS[progress.phase]} ${progress.index}/${progress.total}`
+                : '采集中 · 正在读取本地会话…'
+              : busyHint
+                ? `${busyHint}…`
+                : error
+                  ? '采集异常'
+                  : data
+                    ? `就绪 · ${data.sessions.length} 会话 · ${connectedCount} 源 · ${formatClock(
+                        data.generatedAt,
+                      )} 刷新`
+                    : '等待首次采集'}
           </span>
         </div>
       </div>
@@ -143,8 +156,11 @@ export function AppShell({
               <RefreshCw size={14} className={refreshing ? 'desk-spinning' : ''} />
               <span>{refreshing ? '采集中' : '重新采集'}</span>
             </button>
-            <p className="desk-privacy-note">
-              <ShieldCheck size={10} /> 只读本机日志，不上传任何会话内容
+            <p
+              className="desk-privacy-note"
+              title="会话日志与正文只在本机读取，不进缓存也不上传。只有在设置中心配好模型通道、并在会话档案的某一天主动点「生成总结」时，才会把当天统计与你本人发出的消息摘录（已本机脱敏）发往你填写的那个地址。"
+            >
+              <ShieldCheck size={10} /> 只读本机日志 · 未配置模型时零外发
             </p>
           </div>
         </aside>

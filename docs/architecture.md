@@ -52,20 +52,43 @@
 
 ## 4. 本机存储
 
-| 位置                                     | 内容                                                             |
-| ---------------------------------------- | ---------------------------------------------------------------- |
-| `<userData>/chronicle-ingest-cache.json` | 解析缓存，`safeStorage` 加密；含各会话的 mtime/size 与标题、路径 |
-| `<userData>/window-state.json`           | 窗口位置尺寸 + 缩放                                              |
-| `<userData>/desktop-prefs.json`          | 托盘 / 自启 / 采集通知                                           |
-| `<userData>/update-prefs.json`           | 是否自动下载更新、跳过的版本                                     |
-| `<userData>/logs/*.log`                  | `appendLog` 结构化日志（含 `renderer.log`）                      |
-| localStorage `ai-chronicle-theme`        | 主题                                                             |
-| localStorage `ai-chronicle-settings-v1`  | 界面偏好（轮询间隔、是否显示目录路径）                           |
-| localStorage `voyra-view-*`              | 各页视图态（时间范围、折叠、工具过滤）                           |
+| 位置                                     | 内容                                                                                                       |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `<userData>/chronicle-ingest-cache.json` | 解析缓存，`safeStorage` 加密；含各会话的 mtime/size 与标题、路径                                           |
+| `<userData>/window-state.json`           | 窗口位置尺寸 + 缩放                                                                                        |
+| `<userData>/desktop-prefs.json`          | 托盘 / 自启 / 采集通知                                                                                     |
+| `<userData>/update-prefs.json`           | 是否自动下载更新、跳过的版本                                                                               |
+| `<userData>/ai-config.json`              | 模型通道（名称/协议/Base URL/模型）。密钥字段 `keyEnc` 是 `safeStorage` 密文，**没有钥匙串就拒绝保存密钥** |
+| `<userData>/ai-summaries.json`           | 已生成的当日总结：`{ dayKey: { text, model, provider, generatedAt, chars, includedMessages } }`            |
+| `<userData>/logs/*.log`                  | `appendLog` 结构化日志（含 `renderer.log`）。**不写密钥、不写发送正文**                                    |
+| localStorage `ai-chronicle-theme`        | 主题                                                                                                       |
+| localStorage `ai-chronicle-settings-v1`  | 界面偏好（轮询间隔、是否显示目录路径）                                                                     |
+| localStorage `voyra-view-*`              | 各页视图态（sessionStorage：时间范围、折叠、工具过滤）                                                     |
+| localStorage `ai-chronicle-view-v1`      | 跨重启保留的视图态：会话档案的清单/日历页签、当前月份、选中日期                                            |
 
 `safeStorage` 不可用时缓存退化为明文（仍只在本机），当前不额外提示 —— 见「已知限制」。
 
-## 5. 更新链路
+## 5. 模型辅助出口（v0.7.0）
+
+这是除更新检查外软件唯一的出站路径，也是唯一会把会话内容交给外部进程的代码。三个模块各司其职：
+
+| 模块                       | 职责                           | 关键约束                                                                                                                                                                             |
+| -------------------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `electron/ai-config.cjs`   | 通道增删改查 + 密钥加解密      | 公开视图只给 `hasKey`；`normalizeBaseUrl` 限 http/https、拒绝凭据/query/锚点，**允许回环与内网**（与更新链路的 `guardPublicHttps` 刻意不同）；钥匙串不可用时拒绝存密钥，不退化成明文 |
+| `electron/ai-client.cjs`   | 端点拼接、请求构造、发送、脱敏 | 超时 30 秒；响应体 2 MB 上限；**跨源重定向不跟**（同源最多跟一次）；`redactSecrets` 覆盖 `sk-`/`ghp_`/`github_pat_`/`xox`/JWT/`Bearer`/PEM/内网 IP                                   |
+| `electron/day-prompts.cjs` | 按需重读当天正文 + 组装提示词  | 正文**不进采集缓存**（不升 `CACHE_VERSION`）；每条截 200 字、全天 24000 字，超出的条数如实写进正文；取不到正文的来源在提示词里点名                                                   |
+
+数据流：日历选中某天 → `desktop:summarize-day(dayKey, requestId)` → 主进程读缓存定位当天文件 →
+重解析取用户消息 → 脱敏 + 预算 → `net.request` → 结果写 `ai-summaries.json` → 界面回显。
+**payload 只在主进程构造**，渲染层只传 `dayKey` 与通道 id，密钥不进渲染进程。
+
+- **取消**：`aiInFlight` 按 `requestId` 登记 abort。取消可能发生在"组装正文"阶段（约 1 秒，此时请求还没上线），
+  所以先立 `aborted` 标记、请求发出时补一刀，否则会出现"点了取消照样发出去"。
+- **竞态**：组件侧只采纳 `requestId` 仍是最新那一个的响应；切日期会主动 abort 上一天的请求。
+- **可核对**：`desktop:preview-day-payload` 返回真正会发出去的完整文本，界面「发送内容预览」原样展示，
+  并附「纳入 N 条 / 因预算未纳入 M 条 / 未取到正文的来源 K 个」。
+
+## 6. 更新链路
 
 1. 启动 7 秒后自检一次，之后每 6 小时补检（常驻托盘的应用不会自己重启）。
 2. `pickUpdateFeed()` 并发测速 3 个源（GitHub 直连 / gh-proxy / ghfast），每个 6 秒上限，取最快可用；
@@ -77,12 +100,12 @@
 5. 开发模式验证要 `CHRONICLE_DEV_UPDATE=1` + 未入库的 `dev-app-update.yml`；`desktop:install-update` 在
    `!app.isPackaged` 时直接拒绝，避免开发时把包真装进本机。
 
-## 6. 验证工具与门禁
+## 7. 验证工具与门禁
 
 | 手段                               | 用途                                                                                                                                                                                                                                                                                              |
 | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `npm run verify`                   | format:check → lint → test → build（本地与 CI 同一口径）                                                                                                                                                                                                                                          |
-| `npx vitest run`                   | 143 项单测：格式化/路径/摘要/搜索口径/加密备份/解析夹具/坏数据降级/异步工具/构建资产                                                                                                                                                                                                              |
+| `npx vitest run`                   | 216 项单测（15 个文件）：格式化/路径/摘要/搜索口径/加密备份/解析夹具/坏数据降级/异步工具/构建资产/日历纯计算/模型通道与密钥/请求构造与脱敏/正文预算/IPC 三面一致性                                                                                                                                |
 | `CHRONICLE_SHOT=<目录> electron .` | 逐页截图（Electron 里 `capturePage` 可用，CDP `captureScreenshot` 在窗口被遮挡时会挂死）                                                                                                                                                                                                          |
 | `CHRONICLE_DEBUG=1 electron .`     | 打印采集汇总与启动耗时后退出                                                                                                                                                                                                                                                                      |
 | `scripts/e2e-cdp.cjs`              | 对运行中的实例（`--remote-debugging-port=9222`）截图 / 执行 JS / 派发真实鼠标事件                                                                                                                                                                                                                 |
@@ -91,7 +114,7 @@
 | CI                                 | `windows-latest`：format / lint / test / `npm audit --omit=dev`（显式官方 registry）/ build / CSP 注入检查                                                                                                                                                                                        |
 | release.yml                        | 打 NSIS + portable + blockmap + latest.yml，上传 4 个资产                                                                                                                                                                                                                                         |
 
-## 7. 已知限制（不粉饰）
+## 8. 已知限制（不粉饰）
 
 **数据口径**
 
@@ -119,7 +142,18 @@
   工作区文件已删除；要抹掉历史需要重写并 force-push，未做。
 - 自动更新的"静默安装成功"这一端到端结果，只有当你真的用安装包升一次级才能最终确认；
   开发模式只能验到"下载完成"为止。
-- 另一个仓库（学习通）的 `electron/main.js:594` 有与本项目相同的 `quitAndInstall(false, …)` 缺陷，未修。
+- 同一套代码里曾有的 `quitAndInstall(false, …)` 缺陷，学习通仓库已于 2026-10-07 修成 `(true, true)`
+  （`electron/main.js` 里搜 `quitAndInstall` 可核对，注释写明了"勿改回"的原因）。本仓库这条是历史记录，不是待办。
+
+**模型辅助（v0.7.0）**
+
+- 当天正文的取法是"按采集缓存里的文件路径重读源文件"。SQLite 源（ZCode / OpenCode / Hermes / Agnes）的表结构
+  在 `day-prompts.cjs` 里**重复实现了一份**：这是刻意避免改动采集扫描器带来回归风险，代价是这些库的结构一变，
+  总结会少几个来源 —— 少谁会在「发送内容预览」里点名，不会静默。
+- 跨天会话（例如 23:43 开始、次日 14:59 结束）在生成总结时把**整场会话的用户消息**都算进当天，
+  没有逐条按消息时间拆分。日历格子与清单的分日口径仍按 `start`，两者一致。
+- 摘录预算（200 字/条、24000 字/天）与文件读取预算（120 个文件 / 8 秒）是拍脑袋的保守值，未按模型上下文窗口自适应。
+- 「测试连接」发的是一条 16 token 的最小请求，会真实计费（供应商按 token 计价时以极小量计）。
 
 **依赖**
 

@@ -10,6 +10,7 @@ import {
   Palette,
   RefreshCw,
   ShieldCheck,
+  Sparkles,
   Upload,
 } from 'lucide-react'
 import { useChronicle, type AutoRefreshInterval } from '../lib/store'
@@ -19,6 +20,7 @@ import { useSourceScan } from '../lib/useSourceScan'
 import { dayKeyOf } from '../lib/format'
 import { APP_ENV, CHANNEL_LABEL } from '../lib/env'
 import { Switch } from '../components/Switch'
+import { AiChannelsPanel } from '../components/AiChannelsPanel'
 import { UpdatePanel } from '../components/UpdatePanel'
 import { EmptyState, DesktopOnlyPage } from '../components/EmptyState'
 import { classNames } from '../lib/utils'
@@ -32,11 +34,12 @@ interface SettingsPageProps {
   onToast: (toast: Omit<ToastMessage, 'id'>) => void
 }
 
-type SettingsSection = 'appearance' | 'ingest' | 'desktop' | 'backup' | 'update' | 'diag'
+type SettingsSection = 'appearance' | 'ingest' | 'ai' | 'desktop' | 'backup' | 'update' | 'diag'
 
 const SECTIONS: Array<{ id: SettingsSection; label: string; icon: LucideIcon }> = [
   { id: 'appearance', label: '外观与显示', icon: Palette },
   { id: 'ingest', label: '数据采集', icon: RefreshCw },
+  { id: 'ai', label: '模型辅助', icon: Sparkles },
   { id: 'desktop', label: '桌面集成', icon: Monitor },
   { id: 'backup', label: '安全备份', icon: ShieldCheck },
   { id: 'update', label: '软件更新', icon: ArrowUpCircle },
@@ -68,6 +71,19 @@ const SECTION_KEYWORDS: Record<SettingsSection, string[]> = {
     '隐藏',
   ],
   ingest: ['采集', '刷新', '轮询', '静默', '重新采集', '缓存', 'ingest'],
+  ai: [
+    '模型',
+    'api',
+    '密钥',
+    '总结',
+    'openai',
+    'anthropic',
+    'ollama',
+    '深度求索',
+    '通道',
+    'base url',
+    'ai',
+  ],
   desktop: ['桌面', '托盘', '开机', '自启', '通知', '集成', 'desktop'],
   backup: ['备份', '加密', '解密', '密码', '导出', '导入', '校验', 'aes', 'gcm', 'backup'],
   update: ['更新', '版本', '升级', '下载', '安装', 'update'],
@@ -496,6 +512,14 @@ export function SettingsPage({ theme, searchQuery, onThemeChange, onToast }: Set
                 {rescanning ? '采集中' : data ? `${data.sessions.length} 会话` : '—'}
               </span>
             </button>
+          </div>
+        )}
+
+        {/* ---------- 模型辅助 ---------- */}
+        {activeSection === 'ai' && isSectionVisible('ai') && (
+          <div className="desk-set-card desk-enter">
+            <h3 className="desk-set-title">模型辅助总结</h3>
+            <AiChannelsPanel onToast={onToast} />
           </div>
         )}
 

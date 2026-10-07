@@ -39,4 +39,23 @@ contextBridge.exposeInMainWorld('desktopAPI', {
     ipcRenderer.on('desktop:ingest-progress', listener)
     return () => ipcRenderer.removeListener('desktop:ingest-progress', listener)
   },
+  // 模型辅助总结：密钥只在主进程解密，这里能拿到的公开视图永远没有 key
+  getAiConfig: () => ipcRenderer.invoke('desktop:get-ai-config'),
+  saveAiChannel: (input) => ipcRenderer.invoke('desktop:save-ai-channel', input),
+  deleteAiChannel: (id) => ipcRenderer.invoke('desktop:delete-ai-channel', String(id || '')),
+  setActiveAiChannel: (id) => ipcRenderer.invoke('desktop:set-active-ai-channel', String(id || '')),
+  testAiChannel: (id) => ipcRenderer.invoke('desktop:test-ai-channel', { id: String(id || '') }),
+  previewDayPayload: (dayKey) =>
+    ipcRenderer.invoke('desktop:preview-day-payload', { dayKey: String(dayKey || '') }),
+  summarizeDay: (payload) =>
+    ipcRenderer.invoke('desktop:summarize-day', {
+      dayKey: String(payload?.dayKey || ''),
+      id: String(payload?.id || ''),
+      requestId: String(payload?.requestId || ''),
+    }),
+  cancelSummarize: (requestId) =>
+    ipcRenderer.invoke('desktop:cancel-summarize', String(requestId || '')),
+  getDaySummaries: () => ipcRenderer.invoke('desktop:get-day-summaries'),
+  deleteDaySummary: (dayKey) =>
+    ipcRenderer.invoke('desktop:delete-day-summary', String(dayKey || '')),
 })

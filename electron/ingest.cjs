@@ -323,8 +323,18 @@ async function eachJsonlLine(filePath, onLine) {
 //  A) Claude Code 形态：type=user/assistant，obj.message.{content,usage}，cwd
 //  B) WorkBuddy 形态：type=message + obj.role，content 数组（input_text 等），
 //     timestamp 为毫秒；另有 type=ai-title 可作标题
-function parseClaudeLikeFile(tool, filePath, dirNameHint) {
+function parseClaudeLikeFile(tool, filePath, dirNameHint, options = {}) {
   const session = makeSession(tool, `${tool}:${filePath}`)
+  // userTexts 只在"按需重读"时开启（生成当日总结）：采集缓存里不存正文，
+  // 否则缓存体积会随会话量成倍涨，且等于把全部对话再抄一份进加密缓存。
+  const wantTexts = options.userTexts === true
+  const userTexts = wantTexts ? [] : null
+  const collect = (raw) => {
+    if (!wantTexts) return
+    const text = cleanText(String(raw ?? ''))
+    if (!text || isInjectedTitle(text)) return
+    userTexts.push(text)
+  }
   // 同一 message.id 的用量可能重复出现（请求/重试/流式更新），
   // 与 Token Monitor 同口径：保留末条
   const usageMap = new Map()
@@ -389,6 +399,7 @@ function parseClaudeLikeFile(tool, filePath, dirNameHint) {
         }
         let counted = false
         for (const raw of texts) {
+          collect(raw)
           const handled = titleFromCandidate(raw, session, !counted)
           if (handled) counted = true
         }
@@ -404,6 +415,7 @@ function parseClaudeLikeFile(tool, filePath, dirNameHint) {
         let counted = false
         for (const c of contents) {
           if (!c || typeof c.text !== 'string') continue
+          collect(c.text)
           const handled = titleFromCandidate(c.text, session, !counted)
           if (handled) counted = true
         }
@@ -427,6 +439,7 @@ function parseClaudeLikeFile(tool, filePath, dirNameHint) {
     } else if (session.id === `${tool}:${filePath}`) {
       session.id = `${tool}:${path.basename(filePath, '.jsonl')}`
     }
+    if (wantTexts) session.userTexts = userTexts
     return finalizeSession(session)
   })
 }
@@ -434,8 +447,16 @@ function parseClaudeLikeFile(tool, filePath, dirNameHint) {
 // ================================================================ Codex rollout
 const CODEX_UUID_RE = /-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i
 
-function parseCodexFile(filePath) {
+function parseCodexFile(filePath, options = {}) {
   const session = makeSession('codex', `codex:${filePath}`)
+  const wantTexts = options.userTexts === true
+  const userTexts = wantTexts ? [] : null
+  const collect = (raw) => {
+    if (!wantTexts) return
+    const text = cleanText(String(raw ?? ''))
+    if (!text || isInjectedTitle(text)) return
+    userTexts.push(text)
+  }
   let lastUsage = null
   let sawAny = false
   // 只写 response_item、不写 event_msg/user_message 的 rollout 占少数，
@@ -470,6 +491,7 @@ function parseCodexFile(filePath) {
     if (obj.type === 'event_msg') {
       const p = obj.payload || {}
       if (p.type === 'user_message' && typeof p.message === 'string') {
+        collect(p.message)
         titleFromCandidate(p.message, session, true)
       }
       if (p.type === 'token_count') {
@@ -485,6 +507,7 @@ function parseCodexFile(filePath) {
           if (c && c.type === 'input_text' && typeof c.text === 'string') {
             const s = cleanText(c.text)
             if (!s || isInjectedTitle(s)) continue
+            collect(s)
             fallbackTurns += 1
             if (!session.title) session.title = pickTitle(s)
             break
@@ -521,6 +544,7 @@ function parseCodexFile(filePath) {
       session.tokensOut = out
       session.hasTokens = true
     }
+    if (wantTexts) session.userTexts = userTexts
     return sawAny ? finalizeSession(session) : null
   })
 }
@@ -841,8 +865,10 @@ function decodeDshProject(dirName) {
   return segs.length ? segs[segs.length - 1] : ''
 }
 
-async function parseDshFile(filePath, projectName) {
+async function parseDshFile(filePath, projectName, options = {}) {
   const session = makeSession('dsh', `dsh:${filePath}`)
+  const wantTexts = options.userTexts === true
+  const userTexts = wantTexts ? [] : null
   session.project = projectName || '(未知位置)'
   let raw
   try {
@@ -886,6 +912,10 @@ async function parseDshFile(filePath, projectName) {
         const part = data.content.find((c) => c && typeof c.text === 'string')
         if (part) cand = part.text
       } else if (typeof data.text === 'string') cand = data.text
+      if (wantTexts) {
+        const cleaned = cleanText(String(cand ?? ''))
+        if (cleaned && !isInjectedTitle(cleaned)) userTexts.push(cleaned)
+      }
       titleFromCandidate(cand, session, true)
     }
     if (type === 'assistant/message') {
@@ -900,6 +930,7 @@ async function parseDshFile(filePath, projectName) {
     }
   }
   session.tokensCached = maxCacheRead
+  if (wantTexts) session.userTexts = userTexts
   return finalizeSession(session)
 }
 

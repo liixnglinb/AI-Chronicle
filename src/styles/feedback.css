@@ -1,33 +1,27 @@
 /* 状态与反馈体系：采集状态横幅 / Toast / 模态框 / 骨架屏 / 空状态 */
 
 /* ============================ 采集状态横幅 ============================ */
+/* 状态条：贴左侧的细描边强调，不做成卡片 */
 .desk-state-banner {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--vr-sp-5);
-  padding: var(--vr-sp-3) var(--vr-sp-5);
-  border-radius: var(--vr-radius-sm);
-  border: 1px solid;
+  padding: var(--vr-sp-2) var(--vr-sp-3);
+  border-left: 2px solid;
   font-size: var(--vr-text-xs);
   flex-wrap: wrap;
 }
 
-.desk-state-banner[data-tone='loading'] {
-  background: var(--vr-info-bg);
-  border-color: color-mix(in srgb, var(--vr-info) 32%, transparent);
-  color: var(--vr-info);
-}
-
 .desk-state-banner[data-tone='error'] {
+  border-left-color: var(--vr-danger);
   background: var(--vr-danger-bg);
-  border-color: color-mix(in srgb, var(--vr-danger) 32%, transparent);
   color: var(--vr-danger);
 }
 
 .desk-state-banner[data-tone='partial'] {
+  border-left-color: var(--vr-warning);
   background: var(--vr-warning-bg);
-  border-color: color-mix(in srgb, var(--vr-warning) 32%, transparent);
   color: var(--vr-warning);
 }
 
@@ -77,7 +71,8 @@
   cursor: pointer;
   text-decoration: underline;
   text-underline-offset: 2px;
-  padding: 0;
+  /* 纯文字按钮的热区只有 17px 高，补内边距抬到 29px，指针不改变视觉行高 */
+  padding: var(--vr-sp-1) var(--vr-sp-2);
 }
 
 .desk-banner-action-btn:hover,

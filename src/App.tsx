@@ -238,7 +238,12 @@ function Workspace() {
         return <TimelinePage searchQuery={searchQuery} />
       case 'history':
         return (
-          <HistoryPage searchQuery={searchQuery} onClearSearch={clearSearch} onToast={pushToast} />
+          <HistoryPage
+            searchQuery={searchQuery}
+            onClearSearch={clearSearch}
+            onToast={pushToast}
+            onNavigate={navigate}
+          />
         )
       case 'projects':
         // 侧栏在关闭目录时不列这一项，深链 ?view=projects 仍可能进来，给出去处而不是空页

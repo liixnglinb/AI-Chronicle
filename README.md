@@ -8,16 +8,16 @@
 
 8 个页面，深浅双主题，全部数据来自本机日志解析（没有任何模拟数据）：
 
-| 页面       | 内容                                                                                                 |
-| ---------- | ---------------------------------------------------------------------------------------------------- |
-| 今日工作台 | 今日指标（会话 / 软件 / 轮次 / 产出文件 / 活跃时段）+ 按软件归组的工作结论 + 一键导出 Markdown 日报  |
-| 会话档案   | 全部真实会话，按天分组、可按时间范围与软件筛选、可搜索                                               |
-| 时间轴     | 今日 24 小时活跃分布（含峰值高亮与图例）+ 时间顺序会话                                               |
-| 项目集     | 按工作目录聚合，可展开会话、一键打开项目目录（**默认隐藏**，需在设置中心打开「显示目录路径」才出现） |
-| 成果集     | 会话时间窗内项目目录里真实改动过的文件，可按类型 / 项目 / 软件筛选并直接打开                         |
-| 分析       | 近 7/14/30 天的投入、节奏、软件占比与重点投入透视（默认按软件，打开开关后按项目）                    |
-| 接入中心   | 各数据源接入状态、会话数、观察原因，支持强制重新采集与来源诊断                                       |
-| 设置中心   | 外观、数据采集、数据管理、桌面集成、软件更新、隐私、诊断、关于                                       |
+| 页面       | 内容                                                                                                                                                  |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 今日工作台 | 今日指标（会话 / 软件 / 轮次 / 产出文件 / 活跃时段）+ 按软件归组的工作结论 + 一键导出 Markdown 日报                                                   |
+| 会话档案   | 全部真实会话，**清单 / 日历两种视图**：清单按天分组可折叠，日历点某天看当天做了什么（页签、月份、选中日期跨重启保留）；可按时间范围与软件筛选、可搜索 |
+| 时间轴     | 今日 24 小时活跃分布（含峰值高亮与图例）+ 时间顺序会话                                                                                                |
+| 项目集     | 按工作目录聚合，可展开会话、一键打开项目目录（**默认隐藏**，需在设置中心打开「显示目录路径」才出现）                                                  |
+| 成果集     | 会话时间窗内项目目录里真实改动过的文件，可按类型 / 项目 / 软件筛选并直接打开                                                                          |
+| 分析       | 近 7/14/30 天的投入、节奏、软件占比与重点投入透视（默认按软件，打开开关后按项目）                                                                     |
+| 接入中心   | 各数据源接入状态、会话数、观察原因，支持强制重新采集与来源诊断                                                                                        |
+| 设置中心   | 外观、数据采集、**模型辅助（可选）**、数据管理、桌面集成、软件更新、隐私、诊断、关于                                                                  |
 
 主要交互：`Ctrl/Cmd + K` 命令面板（可搜全部会话）、侧边栏可收起、深浅主题、界面缩放。
 
@@ -139,11 +139,25 @@ npm run dev:desktop  # Electron 开发模式（真实数据）
 
 - **技术栈**：Electron 44（用 Node 24 内置的 `node:sqlite` 只读直连各软件数据库，零原生模块）+ React 19 + TypeScript + Vite 8 + fzstd（纯 JS zstd）；图表是 `src/components/charts/` 下的自绘 SVG，**没有 recharts**（v0.6.8 移除）
 - **采集层**：`electron/ingest.cjs`。文件级缓存按 `mtime + size` 复用，2026-10-06 本机实测：1160 个文件冷启动 28.1 秒，命中缓存 1.0 秒（28× 收益）。**解析逻辑一变必须递增 `CACHE_VERSION`**，否则旧缓存会持续返回旧结果，改了也看不出来（当前 v4）
-- **前端结构**：`src/components` 通用原语（AppShell / Button / Modal / Switch / EmptyState / Skeleton / ErrorBoundary / ToastStack / ToolMark / UpdatePanel / UpdateBadge / DataStateBanner / SourceHealthBadge / CommandPalette / charts），`src/pages` 8 个页面，`src/lib` 纯逻辑与 hook
-- **`src/lib` 的边界**：`async.ts`（超时/退避，纯函数）、`main-call.ts`（主进程调用统一收口：超时与异常都要弹出来）、`search.ts`（会话搜索的唯一字段口径）、`useSourceScan.ts`（数据源校验/重采，两个页面共用）、`store.tsx`（采集 + 保活 + 更新订阅 + 偏好持久化 + `nowRef`）、`format.ts` / `paths.ts` / `summary.ts` / `theme.ts` / `env.ts` / `errors.ts` / `desktop.ts` / `useIncrementalList.ts` / `useViewState.ts` / `useFocusTrap.ts` / `utils.ts`
+- **模型辅助层（v0.7.0）**：`electron/ai-config.cjs`（通道与密钥存储，密钥只进不出）、`electron/ai-client.cjs`（请求构造 / 超时 30 秒 / 响应 2 MB 上限 / 跨源重定向不跟 / 发送前脱敏）、`electron/day-prompts.cjs`（按需重读当天正文 + 200 字/条、24000 字/天预算）。正文**不进采集缓存**，所以这一层不改 `CACHE_VERSION`，升级不触发重扫
+- **前端结构**：`src/components` 通用原语（AppShell / Button / Modal / Switch / EmptyState / Skeleton / ErrorBoundary / ToastStack / ToolMark / UpdatePanel / UpdateBadge / DataStateBanner / SourceHealthBadge / CommandPalette / SessionRow / HistoryCalendar / DaySummaryPanel / AiChannelsPanel / charts），`src/pages` 8 个页面，`src/lib` 纯逻辑与 hook
+- **`src/lib` 的边界**：`async.ts`（超时/退避，纯函数）、`main-call.ts`（主进程调用统一收口：超时与异常都要弹出来）、`search.ts`（会话搜索的唯一字段口径）、`calendar.ts`（日历按日索引与 6×7 月格，纯函数）、`useSourceScan.ts`（数据源校验/重采，两个页面共用）、`store.tsx`（采集 + 保活 + 更新订阅 + 偏好持久化 + `nowRef` + 共享 `busyHint` 活动信号）、`format.ts` / `paths.ts` / `summary.ts` / `theme.ts` / `env.ts` / `errors.ts` / `desktop.ts` / `useIncrementalList.ts` / `useViewState.ts`（本次会话内的视图状态）/ `usePersistedViewState.ts`（跨重启保留的视图状态，localStorage）/ `useFocusTrap.ts` / `utils.ts`
 - **样式**：唯一入口是 `src/styles/index.css`，按「令牌 → 动效 → 外壳 → 反馈 → 命令面板 → 图表 → 页面 → 设置」顺序 `@import`，**后加载的文件覆盖前面的同名选择器**，反过来不行。新增样式请复用 `voyra-tokens.css` 的令牌，不要引入一次性字号与间距
 - **打包**：`build.files` 显式排除 `react` / `react-dom` / `scheduler` / `lucide-react` —— 它们已被 Vite 打进 `dist`，再进 asar 就是纯重复（排除前 asar 解包 44.8 MB，其中 `lucide-react` 占 33.3 MB；排除后 2.8 MB）。它们仍留在 `dependencies`，这样 CI 的 `npm audit --omit=dev` 才会覆盖到实际 shipped 的代码
 
 ## 隐私
 
-全部数据在本机解析与保存，不联网上传任何会话内容。日志读取为只读操作，软件不会修改任何被读取的 AI 软件数据。
+会话日志与正文全部在本机解析与保存，读取为只读操作，软件不会修改任何被读取的 AI 软件数据。
+
+**除自动更新检查外，软件唯一的对外出口是「模型辅助总结」，且默认不启用**：
+
+- 不在设置中心配模型通道时，软件零内容外发（更新检查只是 GET 版本号与 `latest.yml`，不含任何会话数据）。
+- 配置后也**不会自动发送**：只有你在「会话档案 → 日历 → 某一天」主动点「生成总结」时才发出一次请求。
+- 发出去的内容 = 当天可核对的统计 + **你本人发出的消息**摘录（每条最多 200 字、全天 24000 字封顶），
+  不含模型回复、不含工具输出，且发送前在本机过一遍脱敏（`sk-…` / `ghp_…` / `github_pat_…` / JWT /
+  `Bearer` / PEM 私钥 / 内网 IP）。
+- 请求只发往**你自己填写的地址**（允许本机与内网，如 Ollama / LM Studio / 内网网关）。
+- API 密钥用系统钥匙串（`safeStorage`）加密后保存在主进程，**界面永不回显、不经 IPC 回传、不写日志**；
+  系统钥匙串不可用时直接拒绝保存密钥，不会退化成明文落盘。
+- 任何时候都可以在当天的「发送内容预览」里看到真正会发出去的完整文本 —— 口径可核对，不是嘴上说说。
+- 生成的总结落在 `userData/ai-summaries.json`，显示在本地事实小结**下方**并标注模型与时间，不替换本地统计。

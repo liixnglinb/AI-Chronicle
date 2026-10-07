@@ -1,28 +1,32 @@
 import { useMemo, useState } from 'react'
-import { ChevronDown, ChevronRight, Clock } from 'lucide-react'
+import { CalendarDays, ChevronDown, ChevronRight, List } from 'lucide-react'
 import { useChronicle } from '../lib/store'
-import {
-  dayKeyOf,
-  formatDayLabel,
-  formatDuration,
-  formatTimeRange,
-  sessionDurationMinutes,
-} from '../lib/format'
-import { projectDisplayName } from '../lib/paths'
+import { dayKeyOf, formatDayLabel, formatDuration, sessionDurationMinutes } from '../lib/format'
+import { buildCalendarIndex, monthRange } from '../lib/calendar'
 import { matchSession } from '../lib/search'
 import { useIncrementalList } from '../lib/useIncrementalList'
 import { useViewState, isFilter } from '../lib/useViewState'
-import { openLocalWithToast } from '../lib/desktop'
+import {
+  usePersistedViewState,
+  isDayKeyOrNull,
+  isMonthOrNull,
+  isTab,
+} from '../lib/usePersistedViewState'
+import { SessionRow } from '../components/SessionRow'
+import { HistoryCalendar } from '../components/HistoryCalendar'
+import { DaySummaryPanel } from '../components/DaySummaryPanel'
 import { ToolMark } from '../components/ToolMark'
 import { EmptyState, DesktopOnlyPage } from '../components/EmptyState'
 import { SkeletonPage } from '../components/Skeleton'
 import { classNames } from '../lib/utils'
-import type { SessionRecord, ToastMessage } from '../types'
+import type { SessionRecord, ToastMessage, ViewId } from '../types'
 
 interface HistoryPageProps {
   searchQuery: string
   onClearSearch: () => void
   onToast: (toast: Omit<ToastMessage, 'id'>) => void
+  /** 当天面板里的「前往设置中心」要能跳区，页面自己不持有路由 */
+  onNavigate: (view: ViewId) => void
 }
 
 type RangeOption = 7 | 30 | 0
@@ -38,7 +42,7 @@ const RANGE_OPTIONS: Array<[RangeOption, string]> = [
  * 默认展开最近 3 个活动日，其余折叠 —— 历史动辄数百条会话，
  * 全量铺开既慢又让人找不到东西。
  */
-export function HistoryPage({ searchQuery, onClearSearch, onToast }: HistoryPageProps) {
+export function HistoryPage({ searchQuery, onClearSearch, onToast, onNavigate }: HistoryPageProps) {
   const { data, loading, isDesktop, settings, nowRef } = useChronicle()
   // 目录名默认不显示（搜索仍能命中目录），行内以「软件徽标 + 会话标题」为主
   const showPaths = settings.showProjectPaths
@@ -49,6 +53,14 @@ export function HistoryPage({ searchQuery, onClearSearch, onToast }: HistoryPage
   )
   const [toolFilter, setToolFilter] = useViewState('history-tool', 'all', isFilter)
   const [expandedDays, setExpandedDays] = useState<Record<string, boolean>>({})
+  // 页签 / 年月 / 选中日期跨重启保留（清单的跨度与数据源筛选仍是本次会话的偏好）
+  const [tab, setTab] = usePersistedViewState('history-tab', 'list' as const, isTab)
+  const [calMonth, setCalMonth] = usePersistedViewState('history-month', null, isMonthOrNull)
+  const [selectedDay, setSelectedDay] = usePersistedViewState<string | null>(
+    'history-day',
+    null,
+    isDayKeyOrNull,
+  )
 
   const allSessions = useMemo(() => data?.sessions ?? [], [data])
 
@@ -98,6 +110,23 @@ export function HistoryPage({ searchQuery, onClearSearch, onToast }: HistoryPage
       }))
   }, [filteredSessions])
 
+  // 3.5 日历口径：不吃「时间跨度」（按月翻页本身就是它的时间过滤），只吃数据源与搜索词
+  const calendarSessions = useMemo(
+    () =>
+      allSessions.filter((s) => {
+        if (toolFilter !== 'all' && s.tool !== toolFilter) return false
+        return matchSession(s, searchQuery)
+      }),
+    [allSessions, toolFilter, searchQuery],
+  )
+  const calendarCells = useMemo(() => buildCalendarIndex(calendarSessions), [calendarSessions])
+  const calendarRange = useMemo(() => monthRange([...calendarCells.keys()]), [calendarCells])
+  const todayKey = dayKeyOf(nowRef)
+  const shownMonth = calMonth ?? {
+    year: Number(todayKey.slice(0, 4)),
+    month: Number(todayKey.slice(5, 7)),
+  }
+
   const {
     visibleItems: visibleDayGroups,
     hasMore,
@@ -132,9 +161,34 @@ export function HistoryPage({ searchQuery, onClearSearch, onToast }: HistoryPage
 
   return (
     <div className="desk-history-shell">
+      <div className="desk-view-tabs" role="tablist" aria-label="档案呈现方式">
+        {(
+          [
+            ['list', '清单', List],
+            ['calendar', '日历', CalendarDays],
+          ] as const
+        ).map(([id, label, Icon]) => (
+          <button
+            key={id}
+            role="tab"
+            type="button"
+            aria-selected={tab === id}
+            className={classNames('desk-view-tab', tab === id && 'active')}
+            onClick={() => setTab(id)}
+          >
+            <Icon size={13} />
+            <span>{label}</span>
+          </button>
+        ))}
+      </div>
+
       {/* 复合控制工具条 */}
       <div className="desk-filter-bar">
-        <div className="desk-filter-group">
+        <div
+          className="desk-filter-group"
+          aria-disabled={tab === 'calendar' || undefined}
+          title={tab === 'calendar' ? '日历视图按月份翻页，时间跨度只在清单视图生效' : undefined}
+        >
           <span className="desk-filter-label">时间范围</span>
           <div className="desk-pill-group">
             {RANGE_OPTIONS.map(([value, label]) => (
@@ -142,6 +196,7 @@ export function HistoryPage({ searchQuery, onClearSearch, onToast }: HistoryPage
                 key={value}
                 className={classNames('desk-pill-btn', rangeFilter === value && 'active')}
                 onClick={() => setRangeFilter(value)}
+                disabled={tab === 'calendar'}
                 aria-pressed={rangeFilter === value}
               >
                 {label}
@@ -175,111 +230,108 @@ export function HistoryPage({ searchQuery, onClearSearch, onToast }: HistoryPage
         </div>
       </div>
 
-      {/* 分日折叠清单。空态放在清单里而不是整页早退：筛选条一旦被撤掉，
-          "请调整时间范围/工具筛选"这句提示就没有可点的控件了。 */}
-      <div className="desk-day-group-list">
-        {dayGroups.length === 0 && (
-          <EmptyState
-            title="未匹配到历史会话记录"
-            description="请尝试调整时间范围、工具筛选条件，或清空当前搜索关键词。"
-            actions={
-              <button onClick={resetFilters} className="desk-btn-secondary">
-                重置全部筛选
-              </button>
-            }
-          />
-        )}
-        {visibleDayGroups.map((group, groupIdx) => {
-          const expanded = isDayExpanded(group.dayKey, groupIdx)
-          const totalTurns = group.sessions.reduce((acc, s) => acc + s.turns, 0)
-          const totalMinutes = group.sessions.reduce((acc, s) => acc + sessionDurationMinutes(s), 0)
-          const toolsInDay = new Map<string, string>()
-          for (const s of group.sessions) toolsInDay.set(s.tool, s.toolColor)
+      {tab === 'calendar' ? (
+        <HistoryCalendar
+          sessions={calendarSessions}
+          cells={calendarCells}
+          allProjectPaths={allProjectPaths}
+          showPaths={showPaths}
+          onToast={onToast}
+          month={shownMonth}
+          onMonthChange={setCalMonth}
+          selectedDay={selectedDay}
+          onSelectDay={setSelectedDay}
+          todayKey={todayKey}
+          range={calendarRange}
+          renderDayExtra={(dayKey) => (
+            <DaySummaryPanel
+              key={dayKey}
+              dayKey={dayKey}
+              onToast={onToast}
+              onGoToSettings={() => onNavigate('settings')}
+            />
+          )}
+        />
+      ) : (
+        /* 分日折叠清单。空态放在清单里而不是整页早退：筛选条一旦被撤掉，
+           "请调整时间范围/工具筛选"这句提示就没有可点的控件了。 */
+        <div className="desk-day-group-list">
+          {dayGroups.length === 0 && (
+            <EmptyState
+              title="未匹配到历史会话记录"
+              description="请尝试调整时间范围、工具筛选条件，或清空当前搜索关键词。"
+              actions={
+                <button onClick={resetFilters} className="desk-btn-secondary">
+                  重置全部筛选
+                </button>
+              }
+            />
+          )}
+          {visibleDayGroups.map((group, groupIdx) => {
+            const expanded = isDayExpanded(group.dayKey, groupIdx)
+            const totalTurns = group.sessions.reduce((acc, s) => acc + s.turns, 0)
+            const totalMinutes = group.sessions.reduce(
+              (acc, s) => acc + sessionDurationMinutes(s),
+              0,
+            )
+            const toolsInDay = new Map<string, string>()
+            for (const s of group.sessions) toolsInDay.set(s.tool, s.toolColor)
 
-          return (
-            <div key={group.dayKey} className="desk-panel desk-day-block desk-enter">
-              <button
-                className="desk-day-head"
-                onClick={() => toggleDay(group.dayKey)}
-                aria-expanded={expanded}
-              >
-                <span className="desk-day-title-area">
-                  <span className="desk-day-chevron">
-                    {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            return (
+              <div key={group.dayKey} className="desk-panel desk-day-block desk-enter">
+                <button
+                  className="desk-day-head"
+                  onClick={() => toggleDay(group.dayKey)}
+                  aria-expanded={expanded}
+                >
+                  <span className="desk-day-title-area">
+                    <span className="desk-day-chevron">
+                      {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                    </span>
+                    <span className="desk-day-date-text">
+                      {group.dayKey === 'unknown' ? '时间未记载' : formatDayLabel(group.dayKey)}
+                    </span>
+                    <span className="desk-day-tool-dots">
+                      {[...toolsInDay.values()].map((color, i) => (
+                        <span key={i} className="desk-day-dot" style={{ backgroundColor: color }} />
+                      ))}
+                    </span>
                   </span>
-                  <span className="desk-day-date-text">
-                    {group.dayKey === 'unknown' ? '时间未记载' : formatDayLabel(group.dayKey)}
+                  <span className="desk-day-stats-area">
+                    <span className="desk-day-stat-pill">{group.sessions.length} 会话</span>
+                    <span className="desk-day-stat-pill">{totalTurns} 轮</span>
+                    {totalMinutes > 0 && (
+                      <span className="desk-day-stat-pill">{formatDuration(totalMinutes)}</span>
+                    )}
                   </span>
-                  <span className="desk-day-tool-dots">
-                    {[...toolsInDay.values()].map((color, i) => (
-                      <span key={i} className="desk-day-dot" style={{ backgroundColor: color }} />
+                </button>
+
+                {expanded && (
+                  <div className="desk-session-rows">
+                    {group.sessions.map((s) => (
+                      <SessionRow
+                        key={s.id}
+                        session={s}
+                        showPaths={showPaths}
+                        allProjectPaths={allProjectPaths}
+                        onToast={onToast}
+                      />
                     ))}
-                  </span>
-                </span>
-                <span className="desk-day-stats-area">
-                  <span className="desk-day-stat-pill">{group.sessions.length} 会话</span>
-                  <span className="desk-day-stat-pill">{totalTurns} 轮</span>
-                  {totalMinutes > 0 && (
-                    <span className="desk-day-stat-pill">{formatDuration(totalMinutes)}</span>
-                  )}
-                </span>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+
+          {hasMore && (
+            <div className="desk-load-more-wrap">
+              <button onClick={loadMore} className="desk-btn-ghost">
+                加载更多历史日记（还有 {remaining} 个活动日）
               </button>
-
-              {expanded && (
-                <div className="desk-session-rows">
-                  {group.sessions.map((s) => (
-                    <div key={s.id} className="desk-session-row">
-                      <span className="desk-row-time" title="会话起止时间">
-                        <Clock size={12} className="desk-time-ico" />
-                        {formatTimeRange(s.start, s.end)}
-                      </span>
-
-                      <span className="desk-row-tool">
-                        <ToolMark tool={s.tool} name={s.toolName} color={s.toolColor} size={15} />
-                      </span>
-
-                      <span className="desk-row-main">
-                        <span className="desk-row-title" title={`会话首条指令：${s.title}`}>
-                          {s.title || '（空白会话标题）'}
-                        </span>
-                        <span className="desk-row-meta">
-                          {showPaths && (
-                            <span
-                              className="desk-meta-proj"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                if (s.projectPath) void openLocalWithToast(onToast, s.projectPath)
-                              }}
-                              title={`在工作目录中打开：${s.projectPath}`}
-                            >
-                              {projectDisplayName(s.projectPath || s.project, allProjectPaths)}
-                            </span>
-                          )}
-                          {s.model && <span className="desk-meta-model">{s.model}</span>}
-                          <span className="desk-meta-turns">{s.turns} 轮</span>
-                          {s.artifacts.length > 0 && (
-                            <span className="desk-meta-art-count">
-                              产出 {s.artifacts.length} 个文件
-                            </span>
-                          )}
-                        </span>
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
             </div>
-          )
-        })}
-
-        {hasMore && (
-          <div className="desk-load-more-wrap">
-            <button onClick={loadMore} className="desk-btn-ghost">
-              加载更多历史日记（还有 {remaining} 个活动日）
-            </button>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

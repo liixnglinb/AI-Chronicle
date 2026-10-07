@@ -317,6 +317,413 @@
   gap: var(--vr-sp-4);
 }
 
+/* ============================ 档案页签与日历视图 ============================ */
+.desk-view-tabs {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  align-self: flex-start;
+  background: var(--vr-bg-subtle);
+  border-radius: var(--vr-radius-sm);
+}
+
+.desk-view-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--vr-sp-2);
+  height: 26px;
+  padding: 0 var(--vr-sp-4);
+  border: none;
+  border-radius: var(--vr-radius-xs);
+  background: transparent;
+  color: var(--vr-text-muted);
+  font-family: inherit;
+  font-size: var(--vr-text-xs);
+  cursor: pointer;
+  transition:
+    background var(--vr-motion-dur-fast) var(--vr-motion-ease),
+    color var(--vr-motion-dur-fast) var(--vr-motion-ease);
+}
+
+.desk-view-tab:hover {
+  color: var(--vr-text-main);
+}
+
+.desk-view-tab.active {
+  background: var(--vr-surface);
+  color: var(--vr-text-main);
+  font-weight: 600;
+  box-shadow: var(--vr-shadow-flat);
+}
+
+.desk-filter-group[aria-disabled='true'] {
+  opacity: 0.42;
+}
+
+.desk-filter-group[aria-disabled='true'] .desk-pill-btn {
+  pointer-events: none;
+}
+
+.desk-calendar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--vr-sp-4);
+}
+
+.desk-cal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--vr-sp-4);
+  flex-wrap: wrap;
+}
+
+.desk-cal-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--vr-sp-2);
+}
+
+.desk-cal-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--vr-border-subtle);
+  border-radius: var(--vr-radius-sm);
+  background: var(--vr-surface);
+  color: var(--vr-text-muted);
+  cursor: pointer;
+}
+
+.desk-cal-arrow:hover:not(:disabled) {
+  border-color: var(--vr-border-strong);
+  color: var(--vr-text-main);
+}
+
+.desk-cal-arrow:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.desk-cal-month {
+  min-width: 104px;
+  text-align: center;
+  font-size: var(--vr-text-sm);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.desk-cal-head-right {
+  display: flex;
+  align-items: center;
+  gap: var(--vr-sp-3);
+  flex-wrap: wrap;
+}
+
+.desk-cal-summary {
+  font-size: var(--vr-text-xs);
+  color: var(--vr-text-faint);
+}
+
+.desk-cal-jump {
+  height: 26px;
+  padding: 0 var(--vr-sp-3);
+  border: 1px solid var(--vr-border-subtle);
+  border-radius: var(--vr-radius-sm);
+  background: transparent;
+  color: var(--vr-text-muted);
+  font-family: inherit;
+  font-size: var(--vr-text-xs);
+  cursor: pointer;
+}
+
+.desk-cal-jump:hover {
+  border-color: var(--vr-border-strong);
+  color: var(--vr-text-main);
+}
+
+.desk-cal-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.desk-cal-row {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 3px;
+}
+
+.desk-cal-weekrow {
+  gap: 3px;
+}
+
+.desk-cal-week {
+  text-align: center;
+  font-size: var(--vr-text-2xs);
+  color: var(--vr-text-faint);
+  padding-bottom: 2px;
+}
+
+.desk-cal-cell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-height: 62px;
+  padding: 5px 6px;
+  border: 1px solid var(--vr-border-subtle);
+  border-radius: var(--vr-radius-sm);
+  background: var(--vr-surface);
+  color: var(--vr-text-main);
+  font-family: inherit;
+  cursor: pointer;
+  transition:
+    background var(--vr-motion-dur-fast) var(--vr-motion-ease),
+    border-color var(--vr-motion-dur-fast) var(--vr-motion-ease);
+}
+
+.desk-cal-cell:hover:not(.is-blank) {
+  border-color: var(--vr-border-strong);
+}
+
+.desk-cal-cell.is-blank {
+  border-color: transparent;
+  background: transparent;
+  cursor: default;
+}
+
+.desk-cal-cell.is-level-1 {
+  background: var(--vr-surface-hover);
+}
+
+.desk-cal-cell.is-level-2 {
+  background: var(--vr-surface-active);
+}
+
+.desk-cal-cell.is-level-3 {
+  background: var(--vr-surface-active);
+  border-color: var(--vr-border-strong);
+}
+
+.desk-cal-cell.is-today {
+  border-color: var(--vr-text-muted);
+  box-shadow: inset 0 0 0 1px var(--vr-border-subtle);
+}
+
+.desk-cal-cell.is-today .desk-cal-daynum {
+  font-weight: 700;
+}
+
+/* 选中态沿用全站语言：抬起的表面 + 描边，不做反色大块（深色主题下会糊成一片白） */
+.desk-cal-cell.is-selected {
+  background: var(--vr-surface-raised);
+  border-color: var(--vr-text-main);
+  box-shadow:
+    inset 0 0 0 1px var(--vr-text-main),
+    var(--vr-shadow-flat);
+}
+
+.desk-cal-cell.is-selected .desk-cal-daynum {
+  font-weight: 700;
+}
+
+.desk-cal-cell.is-selected .desk-cal-count {
+  color: var(--vr-text-main);
+}
+
+.desk-cal-daynum {
+  font-size: var(--vr-text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.desk-cal-count {
+  position: absolute;
+  top: 5px;
+  right: 6px;
+  font-size: 10px;
+  font-family: var(--vr-font-mono);
+  color: var(--vr-text-faint);
+}
+
+.desk-cal-dots {
+  display: flex;
+  gap: 2px;
+  margin-top: auto;
+}
+
+.desk-cal-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: var(--vr-radius-full);
+}
+
+.desk-cal-daypanel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--vr-sp-3);
+  padding: var(--vr-sp-4) var(--vr-sp-5);
+}
+
+.desk-cal-panel-head {
+  display: flex;
+  align-items: center;
+  gap: var(--vr-sp-3);
+  flex-wrap: wrap;
+  padding-bottom: var(--vr-sp-3);
+  border-bottom: 1px solid var(--vr-border-subtle);
+}
+
+.desk-cal-panel-head strong {
+  font-size: var(--vr-text-sm);
+}
+
+.desk-cal-panel-stats {
+  display: flex;
+  gap: var(--vr-sp-2);
+  flex-wrap: wrap;
+}
+
+.desk-cal-close {
+  margin-left: auto;
+  height: 26px;
+  padding: 0 var(--vr-sp-3);
+  border: 1px solid var(--vr-border-subtle);
+  border-radius: var(--vr-radius-sm);
+  background: transparent;
+  color: var(--vr-text-muted);
+  font-family: inherit;
+  font-size: var(--vr-text-xs);
+  cursor: pointer;
+}
+
+.desk-cal-close:hover {
+  border-color: var(--vr-border-strong);
+  color: var(--vr-text-main);
+}
+
+.desk-cal-empty-day {
+  margin: 0;
+  font-size: var(--vr-text-xs);
+  color: var(--vr-text-muted);
+  line-height: 1.6;
+}
+
+/* ============================ 当天模型总结位 ============================ */
+.desk-daysum {
+  display: flex;
+  flex-direction: column;
+  gap: var(--vr-sp-2);
+  margin-top: var(--vr-sp-3);
+  padding-top: var(--vr-sp-3);
+  border-top: 1px solid var(--vr-border-subtle);
+}
+
+.desk-daysum--off {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--vr-sp-3);
+  flex-wrap: wrap;
+  font-size: var(--vr-text-xs);
+  color: var(--vr-text-muted);
+}
+
+.desk-daysum-loading {
+  margin: var(--vr-sp-3) 0 0;
+  font-size: var(--vr-text-xs);
+  color: var(--vr-text-faint);
+}
+
+.desk-daysum-head {
+  display: flex;
+  align-items: center;
+  gap: var(--vr-sp-2);
+  flex-wrap: wrap;
+  font-size: var(--vr-text-xs);
+}
+
+.desk-daysum-head strong {
+  font-size: var(--vr-text-xs);
+}
+
+.desk-daysum-channel {
+  padding: 1px 6px;
+  border-radius: var(--vr-radius-xs);
+  background: var(--vr-bg-subtle);
+  border: 1px solid var(--vr-border-subtle);
+  color: var(--vr-text-muted);
+  font-size: var(--vr-text-2xs);
+}
+
+.desk-daysum-meta {
+  color: var(--vr-text-faint);
+  font-size: var(--vr-text-2xs);
+}
+
+.desk-daysum-text {
+  margin: 0;
+  font-size: var(--vr-text-xs);
+  line-height: 1.75;
+  color: var(--vr-text-main);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.desk-daysum-error {
+  margin: 0;
+  padding: var(--vr-sp-2) var(--vr-sp-3);
+  background: var(--vr-danger-bg);
+  border-left: 2px solid var(--vr-danger);
+  font-size: var(--vr-text-xs);
+  color: var(--vr-text-main);
+}
+
+.desk-daysum-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--vr-sp-2);
+  flex-wrap: wrap;
+}
+
+.desk-daysum-danger {
+  color: var(--vr-danger);
+}
+
+.desk-daysum-preview {
+  display: none;
+}
+
+.desk-daysum-preview.is-open {
+  display: block;
+}
+
+.desk-daysum-preview-note {
+  margin: 0 0 var(--vr-sp-2);
+  font-size: var(--vr-text-2xs);
+  color: var(--vr-text-muted);
+  line-height: 1.6;
+}
+
+.desk-daysum-pre {
+  margin: 0;
+  max-height: 260px;
+  overflow: auto;
+  padding: var(--vr-sp-3) var(--vr-sp-4);
+  background: var(--vr-bg-subtle);
+  border: 1px solid var(--vr-border-subtle);
+  border-radius: var(--vr-radius-sm);
+  font-family: var(--vr-font-mono);
+  font-size: var(--vr-text-2xs);
+  line-height: 1.65;
+  color: var(--vr-text-main);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .desk-day-block {
   overflow: hidden;
 }
@@ -1339,40 +1746,6 @@
   display: flex;
   flex-wrap: wrap;
   gap: var(--vr-sp-2);
-}
-
-/* 采集阶段时间线 */
-.desk-pipeline {
-  display: flex;
-  align-items: center;
-  gap: var(--vr-sp-2);
-  flex-wrap: wrap;
-  padding: var(--vr-sp-3) var(--vr-sp-4);
-  background: var(--vr-bg-subtle);
-  border: 1px solid var(--vr-border-subtle);
-  border-radius: var(--vr-radius-sm);
-  font-size: var(--vr-text-2xs);
-}
-
-.desk-pipeline-step {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--vr-text-faint);
-  font-family: var(--vr-font-mono);
-}
-
-.desk-pipeline-step.is-done {
-  color: var(--vr-success);
-}
-
-.desk-pipeline-step.is-active {
-  color: var(--vr-text-main);
-  font-weight: 600;
-}
-
-.desk-pipeline-sep {
-  color: var(--vr-border-strong);
 }
 
 /* ============================ 窄窗口 ============================ */

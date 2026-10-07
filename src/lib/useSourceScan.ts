@@ -1,5 +1,6 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { callDesktop, type ToastPusher } from './main-call'
+import { useChronicle } from './store'
 import type { ScanSourceResult } from '../types'
 
 /** 数据源校验只 stat 本机若干目录，正常几百毫秒；30 秒还没回来说明磁盘/路径卡住了 */
@@ -10,14 +11,22 @@ const SOURCE_SCAN_TIMEOUT_MS = 30_000
  *
  * 接入中心和设置中心各有一份同名实现，差异只有文案 —— 结果就是设置页那版带 30 秒超时，
  * 接入中心那版没有（挂住就一直转圈），两边 badge 与措辞也不一致。收敛到这里。
+ * 校验期间把文案写进共享 busyHint，让右上角心跳替中间横幅说话。
  */
 export function useSourceScan(
   onToast: ToastPusher,
   refresh: (force?: boolean) => Promise<boolean>,
 ) {
+  const { setBusyHint } = useChronicle()
   const [scanResult, setScanResult] = useState<ScanSourceResult[] | null>(null)
   const [scanning, setScanning] = useState(false)
   const [rescanning, setRescanning] = useState(false)
+
+  useEffect(() => {
+    if (!scanning) return
+    setBusyHint('正在校验数据源')
+    return () => setBusyHint(null)
+  }, [scanning, setBusyHint])
 
   const runScan = useCallback(async () => {
     if (!window.desktopAPI) return
