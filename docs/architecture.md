@@ -79,16 +79,17 @@
 
 ## 6. 验证工具与门禁
 
-| 手段                               | 用途                                                                                                       |
-| ---------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `npm run verify`                   | format:check → lint → test → build（本地与 CI 同一口径）                                                   |
-| `npx vitest run`                   | 143 项单测：格式化/路径/摘要/搜索口径/加密备份/解析夹具/坏数据降级/异步工具/构建资产                       |
-| `CHRONICLE_SHOT=<目录> electron .` | 逐页截图（Electron 里 `capturePage` 可用，CDP `captureScreenshot` 在窗口被遮挡时会挂死）                   |
-| `CHRONICLE_DEBUG=1 electron .`     | 打印采集汇总与启动耗时后退出                                                                               |
-| `scripts/e2e-cdp.cjs`              | 对运行中的实例（`--remote-debugging-port=9222`）截图 / 执行 JS / 派发真实鼠标事件                          |
-| `scripts/test-ingest.cjs`          | 用系统 Node 直接跑采集层，输出耗时、缓存命中与逐软件汇总                                                   |
-| CI                                 | `windows-latest`：format / lint / test / `npm audit --omit=dev`（显式官方 registry）/ build / CSP 注入检查 |
-| release.yml                        | 打 NSIS + portable + blockmap + latest.yml，上传 4 个资产                                                  |
+| 手段                               | 用途                                                                                                                                                                                                                                                                                              |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run verify`                   | format:check → lint → test → build（本地与 CI 同一口径）                                                                                                                                                                                                                                          |
+| `npx vitest run`                   | 143 项单测：格式化/路径/摘要/搜索口径/加密备份/解析夹具/坏数据降级/异步工具/构建资产                                                                                                                                                                                                              |
+| `CHRONICLE_SHOT=<目录> electron .` | 逐页截图（Electron 里 `capturePage` 可用，CDP `captureScreenshot` 在窗口被遮挡时会挂死）                                                                                                                                                                                                          |
+| `CHRONICLE_DEBUG=1 electron .`     | 打印采集汇总与启动耗时后退出                                                                                                                                                                                                                                                                      |
+| `scripts/e2e-cdp.cjs`              | 对运行中的实例（`--remote-debugging-port=9222`）截图 / 执行 JS / 派发真实鼠标事件                                                                                                                                                                                                                 |
+| `scripts/test-ingest.cjs`          | 用系统 Node 直接跑采集层，输出耗时、缓存命中与逐软件汇总                                                                                                                                                                                                                                          |
+| `npx asar list <app.asar>`         | 看打包内容。**不要用 `asar extract-file <包> <文件>`**：它把文件解到**当前工作目录**，在仓库根执行 `extract-file app.asar package.json` 会直接覆盖仓库的 `package.json`（2026-10-06 真发生过，靠 `git show HEAD:package.json > package.json` 恢复）。要看单个文件就用 `asar extract` 解到临时目录 |
+| CI                                 | `windows-latest`：format / lint / test / `npm audit --omit=dev`（显式官方 registry）/ build / CSP 注入检查                                                                                                                                                                                        |
+| release.yml                        | 打 NSIS + portable + blockmap + latest.yml，上传 4 个资产                                                                                                                                                                                                                                         |
 
 ## 7. 已知限制（不粉饰）
 
