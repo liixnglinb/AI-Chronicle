@@ -48,7 +48,7 @@ export function UpdateBadge({ onNavigate, onToast }: UpdateBadgeProps) {
                     .map((line, i) => <p key={i}>{line}</p>)
                 : update?.message}
             </div>
-            {update?.source && <small>下载源：{update.source}</small>}
+            {/* 不显示下载源：线路由主进程实测择优，用户不需要参与判断 */}
           </div>
         )}
         <button

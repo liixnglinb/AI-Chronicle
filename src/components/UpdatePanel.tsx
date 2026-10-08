@@ -30,9 +30,9 @@ export function InstallConfirmDialog({
   return (
     <ConfirmDialog
       title="安装更新并重启？"
-      description={`新版本 v${version} 已下载完成，安装需要退出并重新启动应用。`}
+      description={`新版本 v${version} 已下载完成。点击后软件会关闭并打开安装程序，由你按提示完成安装。`}
       impacts={[
-        '安装过程会自动完成，重启后即进入新版本',
+        '安装程序会弹出安装向导，点「下一步」即可完成，装好后自动重新打开',
         '未保存的内容会随退出丢失，请先确认没有正在进行的导出',
         '也可以稍后再装：更新包已就绪，随时可回来点击安装',
       ]}
@@ -216,16 +216,9 @@ export function UpdatePanel({ onToast }: { onToast: (toast: Omit<ToastMessage, '
               (update?.skippedVersion ? `已跳过 v${update.skippedVersion}` : '已是最新版本')}
             {state === 'error' && '更新失败'}
           </strong>
-          <small>{update?.message || '点按「检查更新」自动测速 GitHub 直连与镜像。'}</small>
-          {update?.source && <small>当前下载源：{update.source}</small>}
-          {update?.probes && update.probes.length > 0 && (
-            <small>
-              测速：
-              {update.probes
-                .map((probe) => `${probe.label} ${probe.ok ? `${probe.ms}ms` : '不可达'}`)
-                .join(' · ')}
-            </small>
-          )}
+          {/* 刻意不显示下载源与测速明细：后台照旧实测直连与镜像谁快并自动选，
+              把「当前走哪个源、各源多少毫秒」摆出来只会让用户以为要自己判断。 */}
+          <small>{update?.message || '点按「检查更新」，会自动挑一条最快的线路。'}</small>
 
           {state === 'downloading' && (
             <div className="desk-progress-wrap">

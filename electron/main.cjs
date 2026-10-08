@@ -643,6 +643,9 @@ let lastUpdateCheckResult = null
 let updaterConfigured = false
 // 已确认可用的新版本号：换源重试时用它决定「只重下」还是「重新检查」
 let pendingUpdateVersion = ''
+// 下载好的安装包绝对路径（来自 update-downloaded 的 info.downloadedFile）。
+// 点「安装并重启」时用它拉起安装向导，而不是自己静默装完。
+let downloadedInstallerPath = ''
 // 下载/校验失败时可切换的备用源（按测速顺序，索引 0 是当前使用的源）
 let feedProbes = []
 let feedFallbackIndex = 1
@@ -957,6 +960,8 @@ function configureUpdater() {
   autoUpdater.on('update-downloaded', (info) => {
     const version = String(info.version)
     pendingUpdateVersion = ''
+    // 安装向导要靠它：拿不到路径时 install handler 会退回静默安装
+    downloadedInstallerPath = String(info?.downloadedFile ?? '')
     const skipped = loadUpdatePrefs().skippedVersion
     if (skipped === version) {
       setUpdateState({
@@ -1653,9 +1658,20 @@ ipcMain.handle('desktop:install-update', async () => {
   }
   try {
     appendLog('main.log', { scope: 'install-update', version: updateState.version })
+    // 安装向导交回给用户：detach 拉起下载好的安装包（本软件 oneClick:false，
+    // 拉起来就是带「下一步」的向导，装完由 NSIS 自己把新版本开起来），再退出本进程。
+    // 顺序必须「先拉起、后退」：反过来进程一退出，刚 spawn 的安装器会被一起收掉；
+    // 退出前留 400ms 是让安装器先把窗口建起来。
+    // 拿不到安装包路径（例如将来换分发方式）才退回静默安装，保证更新不卡最后一步。
+    if (downloadedInstallerPath && fs.existsSync(downloadedInstallerPath)) {
+      setUpdateState({ message: `正在打开 v${updateState.version} 的安装程序…` })
+      require('child_process')
+        .spawn(downloadedInstallerPath, [], { detached: true, stdio: 'ignore' })
+        .unref()
+      setTimeout(() => app.quit(), 400)
+      return { ok: true }
+    }
     setUpdateState({ message: `正在安装 v${updateState.version}，应用会自动重启。` })
-    // isSilent 才会带 /S。oneClick:false 的向导式安装包不静默就会弹出「下一步」，
-    // 与确认框里「安装过程会自动完成」的承诺相反（同款静默做法见磁盘清理助手 main.js:183）。
     // setImmediate 让本条 IPC 的回包先发出，再退出进程。
     setImmediate(() => autoUpdater.quitAndInstall(true, true))
     return { ok: true }
